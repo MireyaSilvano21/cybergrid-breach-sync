@@ -44,16 +44,30 @@ export function addToInventory(inventory: string[], incoming: string[], capacity
   return { inventory: inv, taken, left };
 }
 
-export function rollLoot(rng: () => number, count: number): string[] {
-  const total = COMMON_TABLE.reduce((s, [, w]) => s + w, 0);
+/** Tabla de los cofres raros: más reliquias grandes y nada de moneda suelta. */
+const RARE_TABLE: [string, number][] = [
+  ['tonico', 10], ['sal', 8], ['idolo', 20], ['orbe', 22], ['martillo', 20], ['corona', 20],
+];
+
+export function rollLoot(rng: () => number, count: number, table: [string, number][] = COMMON_TABLE): string[] {
+  const total = table.reduce((s, [, w]) => s + w, 0);
   return Array.from({ length: count }, () => {
     let r = rng() * total;
-    for (const [id, w] of COMMON_TABLE) { r -= w; if (r <= 0) return id; }
-    return COMMON_TABLE[0][0];
+    for (const [id, w] of table) { r -= w; if (r <= 0) return id; }
+    return table[0][0];
   });
 }
 
-export interface ChestSpawn extends Point { id: string; items: string[] }
+/** Cuatro tipos de cofre, de más común a más valioso (GDD sección 8). */
+export type ChestKind = 'forja' | 'sarcofago' | 'ornamentado' | 'relicario';
+export const CHEST_KINDS: Record<ChestKind, { name: string; items: number; rare: boolean }> = {
+  forja: { name: 'Cofre de la Forja', items: 2, rare: false },
+  sarcofago: { name: 'Sarcófago Rúnico', items: 2, rare: false },
+  ornamentado: { name: 'Arcón Ornamentado', items: 3, rare: true },
+  relicario: { name: 'Relicario Antiguo', items: 4, rare: true },
+};
+
+export interface ChestSpawn extends Point { id: string; kind: ChestKind; items: string[] }
 
 /** Busca la casilla de piso más cercana a un punto (en espiral) para no dejar cofres dentro de muros. */
 function nearestFloor(map: GridMap, p: Point): Point | null {
@@ -72,18 +86,22 @@ function nearestFloor(map: GridMap, p: Point): Point | null {
 export function placeChests(map: GridMap): ChestSpawn[] {
   const rng = createRng((map.seed ^ 0x9e3779b9) >>> 0);
   const chests: ChestSpawn[] = [];
-  const add = (p: Point, n: number) => {
+  const add = (p: Point, kind: ChestKind) => {
     const f = nearestFloor(map, p);
     if (!f || chests.some((c) => Math.hypot(c.x - f.x, c.y - f.y) < TILE * 2)) return;
-    chests.push({ id: `c${chests.length}`, x: f.x, y: f.y, items: rollLoot(rng, n) });
+    const k = CHEST_KINDS[kind];
+    chests.push({ id: `c${chests.length}`, kind, x: f.x, y: f.y, items: rollLoot(rng, k.items, k.rare ? RARE_TABLE : COMMON_TABLE) });
   };
-  for (const sp of map.spawns) add({ x: sp.x + TILE * 2, y: sp.y + TILE * 2 }, 2);
+  // La Bóveda Antigua guarda el único Relicario del mapa.
+  add({ x: map.vault.x, y: map.vault.y + TILE }, 'relicario');
+  for (const sp of map.spawns) add({ x: sp.x + TILE * 2, y: sp.y + TILE * 2 }, 'forja');
   for (const m of map.layout) {
     if (m.type !== 'sala' && m.type !== 'camara') continue;
     const ox = m.mx * MODULE_TILES * TILE, oy = m.my * MODULE_TILES * TILE;
     const spots = m.type === 'camara' ? 2 : 1;
     for (let i = 0; i < spots; i++) {
-      add({ x: ox + (3 + rng() * 10) * TILE, y: oy + (3 + rng() * 10) * TILE }, m.type === 'camara' ? 3 : 2);
+      const kind: ChestKind = m.type === 'camara' ? (i === 0 ? 'ornamentado' : 'sarcofago') : rng() < 0.5 ? 'sarcofago' : 'forja';
+      add({ x: ox + (3 + rng() * 10) * TILE, y: oy + (3 + rng() * 10) * TILE }, kind);
     }
   }
   return chests;

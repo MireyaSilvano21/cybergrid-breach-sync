@@ -14,7 +14,7 @@ function setup(n = 1) {
 }
 
 const input = (seq: number, extra: Partial<{ use: boolean; attack: boolean; interact: boolean; ax: number; ay: number; viewT: number }> = {}) =>
-  ({ type: 'input' as const, seq, mx: 0, my: 0, ax: 0, ay: 1, attack: false, interact: false, use: false, ...extra });
+  ({ type: 'input' as const, seq, mx: 0, my: 0, dt: 0, ax: 0, ay: 1, attack: false, interact: false, use: false, ...extra });
 
 /** Coloca al jugador junto al primer cofre. */
 function standAtChest(match: Match, id = 'p0') {

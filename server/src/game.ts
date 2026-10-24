@@ -1,8 +1,9 @@
 import {
   PLAYER, TICK_MS, SYNC_SECONDS, computeDamage, applyHealth, generateValidMap, moveCircle, hasLineOfSight,
   phaseAt, scalePhases, DEFAULT_PHASES, placeChests, addToInventory, itemValue, INTERACT_RANGE,
-  pushHistory, positionAt, clampRewind, type TimedPoint,
+  pushHistory, positionAt, clampRewind, type TimedPoint, createMoveQueue, enqueueMove, consumeMoves, type MoveQueue,
   type GridMap, type InputMessage, type MatchRecord, type PhaseConfig,
+  type ChestKind,
 } from '@shared/index';
 import { config } from './config';
 
@@ -14,6 +15,8 @@ interface Actor {
   hp: number; shield: number;
   alive: boolean; extracted: boolean;
   input: InputMessage | null; lastSeq: number;
+  /** Comandos de movimiento en espera y su acuse para la reconciliación del cliente. */
+  moves: MoveQueue;
   cooldownUntil: number; attackAt: number;
   syncT: number;
   kills: number; deaths: number; endedAt: number | null;
@@ -25,7 +28,7 @@ interface Actor {
   history: TimedPoint[];
 }
 
-export interface Chest { id: string; x: number; y: number; state: 'closed' | 'open' | 'empty'; items: string[] }
+export interface Chest { id: string; kind: ChestKind; x: number; y: number; state: 'closed' | 'open' | 'empty'; items: string[] }
 export interface Remains { id: string; x: number; y: number; items: string[]; owner: string }
 
 /** Radio en el que el servidor envía a otros jugadores: un poco más que la mitad de la diagonal visible (1280×640). */
@@ -54,7 +57,7 @@ export class Match {
       this.actors.set(conn.id, {
         conn, x: sp.x + ring * 48, y: sp.y + ring * 48, ax: 0, ay: 1,
         hp: PLAYER.maxHp, shield: 0, alive: true, extracted: false,
-        input: null, lastSeq: 0, cooldownUntil: 0, attackAt: 0, syncT: 0,
+        input: null, lastSeq: 0, moves: createMoveQueue(), cooldownUntil: 0, attackAt: 0, syncT: 0,
         kills: 0, deaths: 0, endedAt: null,
         inventory: [], pendingAttack: null, pendingUse: false, history: [],
       });
@@ -70,8 +73,10 @@ export class Match {
 
   handleInput(id: string, msg: InputMessage) {
     const a = this.actors.get(id);
-    if (!a || msg.seq < a.lastSeq) return;
+    if (!a || msg.seq <= a.lastSeq) return;
+    a.lastSeq = msg.seq;
     a.input = msg;
+    if (a.alive && !a.extracted) enqueueMove(a.moves, { seq: msg.seq, mx: msg.mx, my: msg.my, dt: msg.dt ?? 0 });
     if (msg.attack) a.pendingAttack = { ax: msg.ax, ay: msg.ay, viewT: msg.viewT };
     if (msg.use) a.pendingUse = true;
   }
@@ -110,11 +115,7 @@ export class Match {
       if (!a.alive || a.extracted) continue;
       const inp = a.input;
       if (inp) {
-        a.lastSeq = inp.seq;
-        let mx = inp.mx, my = inp.my;
-        const l = Math.hypot(mx, my);
-        if (l > 1) { mx /= l; my /= l; }
-        const p = moveCircle(this.map, a, mx * PLAYER.speed * dt, my * PLAYER.speed * dt, PLAYER.radius);
+        const p = consumeMoves(this.map, a, a.moves, dt);
         a.x = p.x; a.y = p.y;
         const al = Math.hypot(inp.ax, inp.ay);
         if (al > 0.1) { a.ax = inp.ax / al; a.ay = inp.ay / al; }
@@ -219,9 +220,9 @@ export class Match {
         type: 'snap', t: Date.now(), time: Math.round(t * 10) / 10, phase,
         timeLeft: Math.max(0, Math.round(this.phases.fin - t)),
         portals, collapseR: Number.isFinite(collapseR) ? Math.round(collapseR) : null,
-        chests: this.chests.filter((c) => Math.hypot(c.x - a.x, c.y - a.y) < VIEW_RADIUS).map((c) => ({ id: c.id, x: c.x, y: c.y, s: c.state })),
+        chests: this.chests.filter((c) => Math.hypot(c.x - a.x, c.y - a.y) < VIEW_RADIUS).map((c) => ({ id: c.id, k: c.kind, x: c.x, y: c.y, s: c.state })),
         remains: this.remains.filter((r) => Math.hypot(r.x - a.x, r.y - a.y) < VIEW_RADIUS).map((r) => ({ id: r.id, x: Math.round(r.x), y: Math.round(r.y), owner: r.owner })),
-        you: { x: a.x, y: a.y, hp: a.hp, alive: a.alive, extracted: a.extracted, sync: a.syncT, syncNeed: SYNC_SECONDS[1], seq: a.lastSeq, kills: a.kills, atk: Date.now() - a.attackAt < 200, inv: a.inventory },
+        you: { x: a.x, y: a.y, hp: a.hp, alive: a.alive, extracted: a.extracted, sync: a.syncT, syncNeed: SYNC_SECONDS[1], seq: a.lastSeq, ack: a.moves.ack, ackRem: a.moves.ackRem, kills: a.kills, atk: Date.now() - a.attackAt < 200, inv: a.inventory },
         others,
       });
     }

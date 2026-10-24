@@ -7,14 +7,18 @@ Videojuego web multijugador de extracción en tiempo real. Canvas 2D en el clien
 | Módulo | Dónde se cumple |
 |---|---|
 | Arquitectura de red y sockets | `server/src/index.ts` (WebSocket en `/ws`, solo con token), `server/src/game.ts` (posiciones, colisiones, daño y extracción calculados en el servidor a 30 Hz). Ping/pong cada 2 s medido en un Web Worker, latencia visible en el HUD. Compensación de lag en los golpes (el servidor revisa contra lo que vio el atacante, máx. 250 ms), ataque predicho en el cliente y búfer de interpolación adaptable a la variación de la red. |
-| Motor Canvas 2D y controles | `client/src/game.ts`: bucle con *delta time* (`requestAnimationFrame`), interpolación de jugadores remotos y predicción local. `client/src/input.ts`: teclado/mouse en PC; joystick y botones táctiles que solo aparecen en pantallas táctiles. |
+| Motor Canvas 2D y controles | `client/src/game.ts`: bucle con *delta time* (`requestAnimationFrame`), interpolación de jugadores remotos y predicción local con reconciliación por comandos (`shared/src/prediction.ts`: el servidor aplica cada tramo de movimiento en orden y confirma hasta cuál llegó; el cliente reaplica lo pendiente, así que no hay tirones aunque la red varíe). `client/src/input.ts`: teclado/mouse en PC; joystick y botones táctiles que solo aparecen en pantallas táctiles. |
 | Endpoints de prueba | `GET /api/test/telemetry` (Win Rate, KDR, supervivencia y valor promedio extraído; agregados O(1)) y `POST /api/test/seed` (100–1000 partidas, validado con Zod). |
-| Pruebas y CI | 43 pruebas en Vitest (`shared/test`, `server/test`), 7 flujos en Playwright (`e2e/`: acceso, lobbies, canvas en PC y móvil, arrastre táctil y saqueo), pipeline en `.github/workflows/ci.yml` en cada Pull Request. |
+| Pruebas y CI | 48 pruebas en Vitest (`shared/test`, `server/test`), 7 flujos en Playwright (`e2e/`: acceso, lobbies, canvas en PC y móvil, arrastre táctil y saqueo), pipeline en `.github/workflows/ci.yml` en cada Pull Request. |
 | Despliegue | `render.yaml` (Render, un solo servicio con SSL). |
 
 ## Bucle de juego actual
 
-Cada equipo aparece junto a un cofre. Los cofres se colocan con la semilla del mapa y tienen tres estados: cerrado, abierto y vacío (arte del Cofre de la Forja). Con **F** (o el botón **Usar** en móvil) se abre el cofre y con otra pulsación se toma el botín, que va a una mochila de 10 casillas validada en el servidor. Al morir, el botín queda en el suelo como **Restos** que cualquiera puede saquear; al extraer por un portal abierto, su valor se registra en la telemetría.
+Cada equipo aparece junto a un cofre. Los cofres se colocan con la semilla del mapa y hay cuatro tipos: Cofre de la Forja junto a cada llegada, Sarcófago Rúnico en las salas, Arcón Ornamentado en las cámaras (3 objetos, tabla rara) y un único Relicario Antiguo en la Bóveda (4 objetos). Cada uno tiene tres estados: cerrado, abierto y vacío. Con **F** (o el botón **Usar** en móvil) se abre el cofre y con otra pulsación se toma el botín, que va a una mochila de 10 casillas validada en el servidor. Al morir, el botín queda en el suelo como **Restos** que cualquiera puede saquear; al extraer por un portal abierto, su valor se registra en la telemetría.
+
+### Estilo visual "Forja Apagada"
+
+El cliente dibuja todo en Canvas 2D con contorno de tinta ciruela y luces saturadas: piso de losas generado por trozos de 8×8 casillas (caché LRU), muros en tres cuartos con cara y tapa, antorchas, monolitos con runas, estrado de portal con remolino, pasto que se aparta al pasar y personajes con túnica que miran hacia donde apuntan. La oscuridad se calcula a media resolución y la visión del jugador sigue siendo el mismo radio para todos (`VISION_RADIUS`). Los sprites de los cofres están normalizados a 256×256 en WebP con la base al 94 % de la altura, así los tres estados encajan sin saltos.
 
 ## Estructura
 
