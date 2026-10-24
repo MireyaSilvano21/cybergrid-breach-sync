@@ -129,44 +129,7 @@ export class Sprites {
   }
 }
 
-// ---------- monolito y estrado del portal ----------
-
-export interface Prop { body: HTMLCanvasElement; glow: HTMLCanvasElement; w: number; h: number }
-
-export function buildMonolith(seed: number): Prop {
-  const r = createRng(seed ^ 0x51), runes: Pt[][] = [];
-  const [body, g] = canvas(76, 156);
-  for (let i = 0; i < 6; i++) { const x = 4 + r() * 60, s = 5 + r() * 7; paintStone(g, r, stonePts(r, x, 147 - s * 0.5, s * 1.5, s, 1.5), '#4a4560', 0.25); }
-  const pl: Pt[] = [[8, 130], [68, 130], [70, 146], [6, 146]]; paintStone(g, r, pl, '#544d68', 0.25); poly(g, pl); g.strokeStyle = INK; g.lineWidth = 3.2; g.stroke();
-  paintStone(g, r, [[18, 132], [20, 34], [38, 8], [38, 132]], '#6d6489', 0.2);
-  paintStone(g, r, [[38, 8], [56, 34], [58, 132], [38, 132]], '#3d3551', 0.1);
-  strokeP(g, [[38, 11], [38, 130]], '#a69cc4', 1.6);
-  poly(g, [[18, 132], [20, 34], [38, 8], [56, 34], [58, 132]]); g.strokeStyle = INK; g.lineWidth = 3.4; g.stroke();
-  for (const p of [[[28, 44], [28, 60]], [[24, 50], [32, 50]], [[24, 70], [32, 80]], [[32, 70], [24, 80]], [[28, 92], [28, 110]], [[24, 96], [28, 92], [32, 96]], [[46, 50], [50, 58], [46, 66]], [[47, 86], [47, 104]]] as Pt[][]) { runes.push(p); strokeP(g, p, '#241d33', 2.6); }
-  const [glow, e] = canvas(76, 156);
-  for (const p of runes) glowP(e, p, '255,90,216', 1);
-  return { body, glow, w: 76, h: 156 };
-}
-
 const FLOOR_PAL = ['#4f4f6c', '#4a4964', '#545370', '#46455f', '#4d4a66', '#535068'];
-
-export function buildDais(seed: number): Prop {
-  const r = createRng(seed ^ 0xda15), cx = 105, cy = 62;
-  const [body, g] = canvas(210, 124);
-  g.fillStyle = '#120b18'; g.beginPath(); g.ellipse(cx, cy, 98, 52, 0, 0, 6.283); g.fill();
-  const n = 16, pt = (a: number, rx: number, ry: number): Pt => [cx + Math.cos(a) * rx, cy + Math.sin(a) * ry];
-  for (let i = 0; i < n; i++) {
-    const a0 = (i / n) * 6.283 + 0.035, a1 = ((i + 1) / n) * 6.283 - 0.035, am = (a0 + a1) / 2;
-    paintStone(g, r, [pt(a0, 94, 49), pt(am, 95.5, 50), pt(a1, 94, 49), pt(a1, 71, 37), pt(am, 70, 36.5), pt(a0, 71, 37)], FLOOR_PAL[i % FLOOR_PAL.length], 0.22);
-  }
-  g.strokeStyle = INK; g.lineWidth = 3.2; g.beginPath(); g.ellipse(cx, cy, 97, 51, 0, 0, 6.283); g.stroke();
-  g.fillStyle = '#160c22'; g.beginPath(); g.ellipse(cx, cy, 68, 35, 0, 0, 6.283); g.fill(); g.stroke();
-  const marks: Pt[][] = [];
-  for (let i = 0; i < 8; i++) { const a = (i / 8) * 6.283, x = cx + Math.cos(a) * 82, y = cy + Math.sin(a) * 43; const p: Pt[] = [[x - 3, y - 2], [x, y + 2], [x + 3, y - 2]]; marks.push(p); strokeP(g, p, '#241d33', 2); }
-  const [glow, e] = canvas(210, 124);
-  for (const p of marks) glowP(e, p, '170,120,255', 0.8);
-  return { body, glow, w: 210, h: 124 };
-}
 
 // ---------- piso por trozos y muros ----------
 
