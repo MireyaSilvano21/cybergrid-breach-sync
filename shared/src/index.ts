@@ -9,3 +9,4 @@ export * from './schemas';
 export * from './physics';
 export * from './loot';
 export * from './view';
+export * from './lagcomp';

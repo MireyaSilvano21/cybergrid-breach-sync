@@ -1,5 +1,5 @@
 import {
-  TILE, PLAYER, INTERP_DELAY_MS, WALL, ITEMS, viewScale, VISION_RADIUS, INTERACT_RANGE, generateValidMap, moveCircle, sampleBuffer, createRng, itemValue,
+  TILE, PLAYER, INTERP_DELAY_MS, TICK_MS, WALL, ITEMS, createJitter, updateJitter, adaptiveDelay, viewScale, VISION_RADIUS, INTERACT_RANGE, generateValidMap, moveCircle, sampleBuffer, createRng, itemValue,
   type GridMap, type TimedPosition,
 } from '@shared/index';
 import type { Net } from './net';
@@ -25,6 +25,17 @@ export class Game {
   private me = { x: 0, y: 0, hp: 100, alive: true, extracted: false, ax: 0, ay: 1, atk: false };
   private server = { x: 0, y: 0 };
   private remotes = new Map<string, Remote>();
+  // --- Netcode del cliente ---
+  /** Variación de llegada de los paquetes y retraso de interpolación adaptable. */
+  private jitter = createJitter();
+  private interpDelay = INTERP_DELAY_MS;
+  private targetDelay = INTERP_DELAY_MS;
+  /** Relación entre la hora local de llegada y la hora del servidor de cada instantánea. */
+  private snapTimes: { t: number; st: number }[] = [];
+  /** Ataque predicho: la animación sale al instante, sin esperar al servidor. */
+  private swingAt = -1e9;
+  private cooldownUntil = 0;
+  private floaters: { x: number; y: number; text: string; t0: number; id?: string }[] = [];
   private portals: { x: number; y: number; open: boolean }[] = [];
   private chests: { id: string; x: number; y: number; s: 'closed' | 'open' | 'empty' }[] = [];
   private remains: { id: string; x: number; y: number; owner: string }[] = [];
@@ -59,6 +70,7 @@ export class Game {
     this.offs.push(net.on('looted', (m) => this.toast(`Obtuviste: ${names(m.items)}${m.left ? ' · no cupo todo' : ''}`)));
     this.offs.push(net.on('notice', (m) => this.toast(m.message)));
     this.offs.push(net.on('extracted', (m) => this.toast(`Escapaste con ${m.value} ◆`)));
+    this.offs.push(net.on('hit', (m) => this.floaters.push({ x: m.x, y: m.y, text: `-${m.dmg}`, t0: performance.now(), id: m.target })));
     this.offs.push(net.on('snap', (m) => this.onSnap(m)));
     this.offs.push(net.on('latency', (m) => { this.el.ping.textContent = `${Math.round(m.ms)} ms`; }));
     this.resize();
@@ -113,10 +125,26 @@ export class Game {
     this.scale = viewScale(this.W, this.H);
   };
 
+  /** Hora del servidor del estado que se está dibujando (para la compensación de lag). */
+  private serverTimeAt(localT: number): number | undefined {
+    const b = this.snapTimes;
+    for (let i = b.length - 1; i > 0; i--) {
+      if (b[i - 1].t <= localT && localT <= b[i].t) {
+        const k = (localT - b[i - 1].t) / (b[i].t - b[i - 1].t || 1);
+        return b[i - 1].st + (b[i].st - b[i - 1].st) * k;
+      }
+    }
+    return b.length ? b[0].st : undefined;
+  }
+
   private onSnap(m: any) {
     const now = performance.now();
+    this.jitter = updateJitter(this.jitter, now, TICK_MS);
+    this.targetDelay = adaptiveDelay(this.jitter.jitter, TICK_MS);
+    this.snapTimes.push({ t: now, st: m.t });
+    if (this.snapTimes.length > 40) this.snapTimes.shift();
     this.server = { x: m.you.x, y: m.you.y };
-    Object.assign(this.me, { hp: m.you.hp, alive: m.you.alive, extracted: m.you.extracted, atk: m.you.atk });
+    Object.assign(this.me, { hp: m.you.hp, alive: m.you.alive, extracted: m.you.extracted });
     this.portals = m.portals; this.collapseR = m.collapseR;
     this.chests = m.chests ?? []; this.remains = m.remains ?? [];
     const inv: string[] = m.you.inv ?? [];
@@ -172,11 +200,18 @@ export class Game {
       else { const k = Math.min(1, dt * 8); this.me.x += ex * k; this.me.y += ey * k; }
     }
     this.me.ax = this.input.aimX; this.me.ay = this.input.aimY;
-    const attack = this.input.consumeAttack();
+    // Ataque predicho: se respeta el mismo enfriamiento que el servidor para no mostrar golpes que él rechazaría.
+    let attack = this.input.consumeAttack();
+    if (attack && (t < this.cooldownUntil || !this.me.alive || this.me.extracted)) attack = false;
+    if (attack) { this.swingAt = t; this.cooldownUntil = t + PLAYER.attackCooldownMs; }
+    this.me.atk = t - this.swingAt < 200;
+    // El búfer se ajusta poco a poco para que el cambio no se note.
+    this.interpDelay += (this.targetDelay - this.interpDelay) * Math.min(1, dt * 2);
+    const viewT = attack ? this.serverTimeAt(performance.now() - this.interpDelay) : undefined;
     const use = this.input.consumeUse();
     if (t - this.lastSend > 33 || attack || use) {
       this.lastSend = t;
-      this.net.send({ type: 'input', seq: ++this.seq, mx: this.input.mx, my: this.input.my, ax: this.input.aimX, ay: this.input.aimY, attack, interact: this.input.interact, use });
+      this.net.send({ type: 'input', seq: ++this.seq, mx: this.input.mx, my: this.input.my, ax: this.input.aimX, ay: this.input.aimY, attack, interact: this.input.interact, use, viewT });
     }
     this.cam.x += (this.me.x - this.cam.x) * Math.min(1, dt * 6);
     this.cam.y += (this.me.y - 20 - this.cam.y) * Math.min(1, dt * 6);
@@ -187,6 +222,8 @@ export class Game {
     for (const c of this.chests) { if (c.s === 'empty') continue; const d = Math.hypot(c.x - this.me.x, c.y - this.me.y); if (d < nd) { nd = d; nc = c; } }
     st.dataset.chestX = nc ? String(Math.round(nc.x)) : ''; st.dataset.chestY = nc ? String(Math.round(nc.y)) : '';
     st.dataset.chestState = nc?.s ?? '';
+    st.dataset.interp = String(Math.round(this.interpDelay));
+    this.el.ping.title = `Búfer de suavizado: ${Math.round(this.interpDelay)} ms`;
   }
 
   private prerender(): HTMLCanvasElement {
@@ -225,7 +262,7 @@ export class Game {
     }
     for (const mo of this.map.monoliths) { g.fillStyle = '#3d3551'; g.fillRect(mo.x - 14, mo.y - 70, 28, 70); g.strokeStyle = '#1d0c16'; g.lineWidth = 3; g.strokeRect(mo.x - 14, mo.y - 70, 28, 70); }
 
-    const renderT = performance.now() - INTERP_DELAY_MS;
+    const renderT = performance.now() - this.interpDelay;
     // Todo lo que tiene altura se dibuja ordenado por su coordenada Y (profundidad).
     const list: { y: number; draw: () => void }[] = [];
     for (const r of this.remotes.values()) {
@@ -240,6 +277,8 @@ export class Game {
     for (const r of this.remains) list.push({ y: r.y, draw: () => this.drawRemains(r.x, r.y) });
     list.sort((a, b) => a.y - b.y);
     for (const o of list) o.draw();
+    this.drawSwing(t);
+    this.drawFloaters();
     this.drawPrompt(t);
 
     // Oscuridad con la visión del jugador y la luz de los portales.
@@ -297,6 +336,32 @@ export class Game {
     const w = g.measureText(label).width + 20, y = best.y - best.top - 8 + Math.sin(t / 250) * 2;
     g.fillStyle = 'rgba(20,10,22,.9)'; g.beginPath(); g.roundRect(best.x - w / 2, y - 18, w, 26, 6); g.fill();
     g.fillStyle = '#ffc08a'; g.fillText(label, best.x, y);
+  }
+
+  /** Arco del golpe propio, dibujado al instante (predicción en el cliente). */
+  private drawSwing(t: number) {
+    const k = (t - this.swingAt) / 260;
+    if (k < 0 || k > 1 || !this.me.alive) return;
+    const g = this.ctx, a0 = Math.atan2(this.me.ay, this.me.ax);
+    g.save();
+    g.globalCompositeOperation = 'lighter';
+    g.strokeStyle = `rgba(255,190,90,${(1 - k) * 0.9})`; g.lineWidth = 9; g.lineCap = 'round';
+    g.beginPath(); g.arc(this.me.x, this.me.y - 22, PLAYER.attackRange * 0.75, a0 - 1.1, a0 - 1.1 + 2.2 * Math.min(1, k * 1.6)); g.stroke();
+    g.restore();
+  }
+
+  /** Números de daño confirmados por el servidor, sobre la posición que vio el atacante. */
+  private drawFloaters() {
+    const g = this.ctx, now = performance.now();
+    this.floaters = this.floaters.filter((f) => now - f.t0 < 800);
+    g.font = '700 20px "Grenze Gotisch", Georgia, serif'; g.textAlign = 'center';
+    for (const f of this.floaters) {
+      const k = (now - f.t0) / 800;
+      g.globalAlpha = 1 - k;
+      g.fillStyle = '#1d0c16'; g.fillText(f.text, f.x + 1.5, f.y - 60 - k * 30 + 1.5);
+      g.fillStyle = '#ffd36a'; g.fillText(f.text, f.x, f.y - 60 - k * 30);
+    }
+    g.globalAlpha = 1;
   }
 
   private drawActor(a: { x: number; y: number; name: string; hp: number; ax: number; ay: number; atk: boolean; me: boolean }) {
