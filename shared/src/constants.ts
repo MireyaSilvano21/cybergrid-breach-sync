@@ -2,10 +2,10 @@
 export const TILE = 64;
 /** Casillas por módulo de la Grid (cada módulo es una sala de 16x16). */
 export const MODULE_TILES = 16;
-/** Frecuencia de simulación del servidor. */
-export const TICK_RATE = 20;
+/** Frecuencia de simulación del servidor (30 Hz: los demás jugadores se ven con menos retraso). */
+export const TICK_RATE = 30;
 export const TICK_MS = 1000 / TICK_RATE;
-/** Retraso de interpolación en el cliente (dos ticks). */
+/** Retraso de interpolación en el cliente (dos ticks ≈ 66 ms). */
 export const INTERP_DELAY_MS = TICK_MS * 2;
 
 export const PLAYER = {
