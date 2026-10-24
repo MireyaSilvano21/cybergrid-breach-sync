@@ -1,0 +1,19 @@
+services:
+  - type: web
+    name: cybergrid-breach-sync
+    runtime: node
+    plan: free
+    buildCommand: npm ci --include=dev && npm run build
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_VERSION
+        value: "20"
+      - key: AUTH_SECRET
+        generateValue: true
+      - key: TEST_ENDPOINTS
+        value: "true"
+      - key: MATCH_SCALE
+        value: "1"
+      - key: MIN_PLAYERS
+        value: "1"
