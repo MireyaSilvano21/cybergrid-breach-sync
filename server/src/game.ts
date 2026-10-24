@@ -24,7 +24,8 @@ interface Actor {
 export interface Chest { id: string; x: number; y: number; state: 'closed' | 'open' | 'empty'; items: string[] }
 export interface Remains { id: string; x: number; y: number; items: string[]; owner: string }
 
-const VIEW_RADIUS = 900;
+/** Radio en el que el servidor envía a otros jugadores: un poco más que la mitad de la diagonal visible (1280×640). */
+const VIEW_RADIUS = 760;
 const PORTAL_RADIUS = 80;
 const BASE_DAMAGE = 22;
 

@@ -6,7 +6,7 @@ Videojuego web multijugador de extracción en tiempo real. Canvas 2D en el clien
 
 | Módulo | Dónde se cumple |
 |---|---|
-| Arquitectura de red y sockets | `server/src/index.ts` (WebSocket en `/ws`, solo con token), `server/src/game.ts` (posiciones, colisiones, daño y extracción calculados en el servidor a 20 Hz). Ping/pong cada 2 s, latencia visible en el HUD. |
+| Arquitectura de red y sockets | `server/src/index.ts` (WebSocket en `/ws`, solo con token), `server/src/game.ts` (posiciones, colisiones, daño y extracción calculados en el servidor a 30 Hz). Ping/pong cada 2 s medido en un Web Worker, latencia visible en el HUD. |
 | Motor Canvas 2D y controles | `client/src/game.ts`: bucle con *delta time* (`requestAnimationFrame`), interpolación de jugadores remotos y predicción local. `client/src/input.ts`: teclado/mouse en PC; joystick y botones táctiles que solo aparecen en pantallas táctiles. |
 | Endpoints de prueba | `GET /api/test/telemetry` (Win Rate, KDR, supervivencia y valor promedio extraído; agregados O(1)) y `POST /api/test/seed` (100–1000 partidas, validado con Zod). |
 | Pruebas y CI | 33 pruebas en Vitest (`shared/test`, `server/test`), 7 flujos en Playwright (`e2e/`: acceso, lobbies, canvas en PC y móvil, arrastre táctil y saqueo), pipeline en `.github/workflows/ci.yml` en cada Pull Request. |

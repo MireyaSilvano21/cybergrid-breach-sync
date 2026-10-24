@@ -1,5 +1,5 @@
 import {
-  TILE, PLAYER, INTERP_DELAY_MS, WALL, ITEMS, INTERACT_RANGE, generateValidMap, moveCircle, sampleBuffer, createRng, itemValue,
+  TILE, PLAYER, INTERP_DELAY_MS, WALL, ITEMS, viewScale, VISION_RADIUS, INTERACT_RANGE, generateValidMap, moveCircle, sampleBuffer, createRng, itemValue,
   type GridMap, type TimedPosition,
 } from '@shared/index';
 import type { Net } from './net';
@@ -109,7 +109,8 @@ export class Game {
     this.dpr = Math.min(2, devicePixelRatio || 1);
     this.W = innerWidth; this.H = innerHeight;
     c.width = Math.round(this.W * this.dpr); c.height = Math.round(this.H * this.dpr);
-    this.scale = this.W < 700 ? 0.72 : 1;
+    // Zoom según la pantalla para que todos vean la misma porción del mundo.
+    this.scale = viewScale(this.W, this.H);
   };
 
   private onSnap(m: any) {
@@ -244,7 +245,7 @@ export class Game {
     // Oscuridad con la visión del jugador y la luz de los portales.
     g.setTransform(1, 0, 0, 1, 0, 0);
     const sc = this.screenOf(this.me.x, this.me.y);
-    const grad = g.createRadialGradient(sc.x * this.dpr, sc.y * this.dpr, 60 * this.dpr, sc.x * this.dpr, sc.y * this.dpr, 520 * this.scale * this.dpr);
+    const grad = g.createRadialGradient(sc.x * this.dpr, sc.y * this.dpr, 70 * this.scale * this.dpr, sc.x * this.dpr, sc.y * this.dpr, VISION_RADIUS * this.scale * this.dpr);
     grad.addColorStop(0, 'rgba(8,3,14,0)'); grad.addColorStop(1, 'rgba(8,3,14,.92)');
     g.fillStyle = grad; g.fillRect(0, 0, g.canvas.width, g.canvas.height);
     if (this.collapseR != null) {
