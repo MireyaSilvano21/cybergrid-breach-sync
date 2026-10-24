@@ -4,7 +4,7 @@ import {
 } from '@shared/index';
 import type { Net } from './net';
 import { Input } from './input';
-import { Sprites, buildFloorChunk, buildWall, wallKey, buildDecor, buildMonolith, buildDais, drawGrass, glowP, CHUNK, WALL_RISE, INK, type FloorChunk, type Decor, type Prop, type ImgKey } from './art';
+import { Sprites, buildFloorChunk, buildWall, wallKey, buildDecor, drawGrass, glowP, CHUNK, WALL_RISE, INK, type FloorChunk, type Decor, type ImgKey } from './art';
 
 interface Remote { id: string; name: string; buf: TimedPosition[]; hp: number; ax: number; ay: number; atk: boolean; seen: number; lx: number; ly: number; walk: number; flash: number }
 type ChestKind = 'forja' | 'sarcofago' | 'ornamentado' | 'relicario';
@@ -19,6 +19,11 @@ const CHEST_ART: Record<ChestKind, { size: number; rgb: string }> = {
 };
 const CHEST_FILE = { closed: 'cerrado', open: 'abierto', empty: 'vacio' } as const;
 const CHUNK_PX = CHUNK * TILE;
+/** Arte de escenario de Astra: tamaño en el mundo (lienzo cuadrado, base al 94 %). */
+const PORTAL_SIZE = 300, MONO_SIZE = 200;
+/** Centro del anillo del portal respecto a su base, para luces y brillo. */
+const PORTAL_RING = { dy: -0.46 * PORTAL_SIZE, r: 0.16 * PORTAL_SIZE };
+const SCENE_FILES = ['portal_apagado', 'portal_abierto', 'portal_colapsando', 'monolito_dormido', 'monolito_ritual', 'monolito_completado', 'pilar_dormido', 'pilar_despierto', 'pilar_destruido'];
 
 const PHASE_LABEL: Record<string, string> = {
   'despertar': 'Despertar', 'primer-silencio': 'Primer Silencio', 'primera-llamada': 'Primera Llamada',
@@ -36,11 +41,11 @@ export class Game {
   // --- Arte "Forja Apagada" ---
   private static art: Sprites | null = null;
   private static chestImg: Record<string, HTMLImageElement> = {};
+  private static sceneImg: Record<string, HTMLImageElement> = {};
   private chunks = new Map<number, FloorChunk>();
   private walls = new Map<number, HTMLCanvasElement>();
   private wallKeys: Int16Array;
   private decor: Decor[];
-  private mono: Prop; private dais: Prop;
   private dark = document.createElement('canvas');
   private embers: { x: number; y: number; vx: number; vy: number; l: number; c: string }[] = [];
   private sparks: { x: number; y: number; vx: number; vy: number; l: number }[] = [];
@@ -89,7 +94,6 @@ export class Game {
     this.wallKeys = new Int16Array(this.map.width * this.map.height).fill(-1);
     for (let y = 0; y < this.map.height; y++) for (let x = 0; x < this.map.width; x++) if (this.map.tiles[y * this.map.width + x] === WALL) this.wallKeys[y * this.map.width + x] = wallKey(this.map, x, y);
     this.decor = buildDecor(this.map);
-    this.mono = buildMonolith(start.seed); this.dais = buildDais(start.seed);
     this.input = new Input(root);
     this.me.x = this.pred.x = this.cam.x = start.x;
     this.me.y = this.pred.y = this.cam.y = start.y;
@@ -125,6 +129,7 @@ export class Game {
     for (const k of Object.keys(CHEST_ART)) for (const s of Object.values(CHEST_FILE)) {
       const img = new Image(); img.src = `/assets/chests/v2/${k}_${s}.webp`; Game.chestImg[`${k}_${s}`] = img;
     }
+    for (const f of SCENE_FILES) { const img = new Image(); img.src = `/assets/escenario/${f}.webp`; Game.sceneImg[f] = img; }
   }
 
   private toast(text: string) {
@@ -359,7 +364,6 @@ export class Game {
         g.drawImage(c.canvas, cx * CHUNK_PX, cy * CHUNK_PX, CHUNK_PX, CHUNK_PX);
         cracks.push(...c.cracks);
       }
-    for (const p of this.portals) g.drawImage(this.dais.body, p.x - 105, p.y - 62, 210, 124);
 
     // 2. Todo lo que tiene altura, ordenado por su base (profundidad en tres cuartos).
     const list: { y: number; draw: () => void }[] = [];
@@ -383,7 +387,8 @@ export class Game {
       else if (d.kind === 'grass') list.push({ y: d.y, draw: () => drawGrass(g, d, sec, pushers) });
       else list.push({ y: d.y + 0.5, draw: () => this.drawSconce(d, sec) });
     }
-    for (const mo of map.monoliths) if (mo.x > v.x0 - 40 && mo.x < v.x1 + 40 && mo.y > v.y0 && mo.y < v.y1 + 160) list.push({ y: mo.y, draw: () => { this.blob(mo.x, mo.y, 26); g.drawImage(this.mono.body, mo.x - 38, mo.y + 6 - 156, 76, 156); } });
+    for (const mo of map.monoliths) if (mo.x > v.x0 - 100 && mo.x < v.x1 + 100 && mo.y > v.y0 && mo.y < v.y1 + 200) list.push({ y: mo.y, draw: () => { this.blob(mo.x, mo.y, 44); this.drawScene('monolito_dormido', mo.x, mo.y, MONO_SIZE); } });
+    for (const p of this.portals) if (p.x > v.x0 - 160 && p.x < v.x1 + 160 && p.y > v.y0 && p.y < v.y1 + 320) list.push({ y: p.y - 6, draw: () => this.drawScene(`portal_${this.portalState(p)}`, p.x, p.y - 6, PORTAL_SIZE) });
     for (const { r, x, y } of remotesNow) list.push({ y, draw: () => this.drawActor({ x, y, ax: r.ax, ay: r.ay, me: false, walk: r.walk, swing: r.atk ? 0.5 : -1, flash: now - r.flash < 120 }) });
     if (this.me.alive && !this.me.extracted) {
       const me = this.me, k = (t - this.swingAt) / 260;
@@ -400,8 +405,11 @@ export class Game {
     const lights: Light[] = [];
     if (this.me.alive && !this.me.extracted) lights.push({ x: this.me.x, y: this.me.y - 24, r: VISION_RADIUS, c: '255,190,110' });
     for (const d of this.decor) if (d.kind === 'sconce' && d.x > v.x0 - 220 && d.x < v.x1 + 220 && d.y > v.y0 - 220 && d.y < v.y1 + 220) lights.push({ x: d.x, y: d.y - 44, r: 220, c: '255,120,40', fl: d.ph });
-    for (const p of this.portals) lights.push({ x: p.x, y: p.y, r: p.open ? 280 : 110, c: p.open ? '160,100,255' : '90,70,140', a: 0.22 });
-    for (const mo of map.monoliths) lights.push({ x: mo.x, y: mo.y - 60, r: 130, c: '255,90,216' });
+    for (const p of this.portals) {
+      const st = this.portalState(p);
+      lights.push({ x: p.x, y: p.y - 6 + PORTAL_RING.dy, r: st === 'apagado' ? 130 : 300, c: st === 'colapsando' ? '255,50,90' : st === 'abierto' ? '160,100,255' : '90,70,140', a: 0.22 });
+    }
+    for (const mo of map.monoliths) lights.push({ x: mo.x, y: mo.y - 90, r: 120, c: '190,110,220', a: 0.15 });
     for (const c of this.chests) if (c.s !== 'empty') lights.push({ x: c.x, y: c.y - 30, r: c.s === 'open' ? 150 : 100, c: CHEST_ART[c.k ?? 'forja'].rgb, a: 0.14 });
     const vis = lights.filter((L) => L.x + L.r > v.x0 && L.x - L.r < v.x1 && L.y + L.r > v.y0 && L.y - L.r < v.y1);
     const d = this.dark.getContext('2d')!;
@@ -426,18 +434,19 @@ export class Game {
     // 4. Brillos mágicos (no los apaga la oscuridad).
     g.globalAlpha = 0.55 + 0.25 * Math.sin(sec * 1.6);
     for (const c of cracks) glowP(g, c, '255,130,40', 0.8);
+    // Portal abierto: el remolino del arte gira con dos trazos de luz y late suavemente.
     for (const p of this.portals) {
-      g.globalAlpha = p.open ? 0.5 + 0.4 * Math.sin(sec * 2.6) : 0.18;
-      g.drawImage(this.dais.glow, p.x - 105, p.y - 62, 210, 124);
-      if (!p.open) continue;
-      g.globalAlpha = 0.75; g.drawImage(art.dot.violet, p.x - 70, p.y - 40, 140, 80); g.globalAlpha = 1;
-      for (let k = 0; k < 4; k++) for (const [lw, a] of [[7, 0.22], [2.4, 0.7]]) {
-        g.strokeStyle = `rgba(${a > 0.5 ? '220,190,255' : '150,100,255'},${a})`; g.lineWidth = lw; g.beginPath();
-        for (let s = 0; s <= 1.0001; s += 0.05) { const an = -sec * 1.8 + (k * Math.PI) / 2 + s * 4.2, rd = (1 - s) * 62 + 4, x = p.x + Math.cos(an) * rd, y = p.y + Math.sin(an) * rd * 0.52; if (s) g.lineTo(x, y); else g.moveTo(x, y); }
+      const st = this.portalState(p); if (st === 'apagado') continue;
+      const cx = p.x, cy = p.y - 6 + PORTAL_RING.dy, R = PORTAL_RING.r, rgb = st === 'colapsando' ? '255,90,120' : '200,160,255';
+      g.globalAlpha = 0.35 + 0.25 * Math.sin(sec * 2.6);
+      g.drawImage(st === 'colapsando' ? art.dot.magenta : art.dot.violet, cx - R * 1.6, cy - R * 1.6, R * 3.2, R * 3.2);
+      g.globalAlpha = 0.55;
+      for (let k = 0; k < 2; k++) {
+        g.strokeStyle = `rgba(${rgb},.8)`; g.lineWidth = 3; g.beginPath();
+        for (let s = 0; s <= 1.0001; s += 0.05) { const an = -sec * (st === 'colapsando' ? 3.2 : 1.6) + k * Math.PI + s * 4, rd = (1 - s) * R * 0.85 + 3, x = cx + Math.cos(an) * rd, y = cy + Math.sin(an) * rd; if (s) g.lineTo(x, y); else g.moveTo(x, y); }
         g.stroke();
       }
     }
-    for (const mo of map.monoliths) { g.globalAlpha = 0.35 + 0.2 * Math.sin(sec * 2 + mo.x); g.drawImage(this.mono.glow, mo.x - 38, mo.y + 6 - 156, 76, 156); }
     g.globalAlpha = 1;
     for (const p of this.embers) { g.fillStyle = `rgba(${p.c},${p.l})`; g.beginPath(); g.arc(p.x, p.y, 2.2 * p.l + 0.6, 0, 6.283); g.fill(); }
     for (const p of this.sparks) { g.strokeStyle = `rgba(255,${(190 + p.l * 60) | 0},120,${p.l})`; g.lineWidth = 3 * p.l + 1; g.beginPath(); g.moveTo(p.x, p.y); g.lineTo(p.x - p.vx * 0.03, p.y - p.vy * 0.03); g.stroke(); }
@@ -469,6 +478,18 @@ export class Game {
       hg.addColorStop(0, 'rgba(200,20,40,0)'); hg.addColorStop(1, `rgba(200,20,40,${0.45 * hk})`); g.fillStyle = hg; g.fillRect(0, 0, this.W, this.H);
     }
     this.worldTransform(g);
+  }
+
+  /** Estado visual del portal: el último portal se ve colapsando durante El Desnombrar. */
+  private portalState(p: { x: number; y: number; open: boolean }): 'apagado' | 'abierto' | 'colapsando' {
+    if (!p.open) return 'apagado';
+    return this.collapseR != null && p === this.portals[1] ? 'colapsando' : 'abierto';
+  }
+
+  /** Dibuja un sprite de escenario normalizado (base al 94 % y centrada). */
+  private drawScene(key: string, x: number, y: number, size: number) {
+    const img = Game.sceneImg[key];
+    if (img?.complete && img.naturalWidth) this.ctx.drawImage(img, x - size / 2, y - size * 0.94, size, size);
   }
 
   private blob(x: number, y: number, rx: number) {
