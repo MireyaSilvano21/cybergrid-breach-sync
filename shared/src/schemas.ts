@@ -22,6 +22,8 @@ export const ClientMessageSchema = z.discriminatedUnion('type', [
     seq: z.number().int().nonnegative(),
     mx: z.number().min(-1).max(1),
     my: z.number().min(-1).max(1),
+    /** Segundos de movimiento que cubre este comando (el servidor los aplica en orden). */
+    dt: z.number().min(0).max(0.25).default(0),
     ax: z.number().min(-1).max(1),
     ay: z.number().min(-1).max(1),
     attack: z.boolean(),
