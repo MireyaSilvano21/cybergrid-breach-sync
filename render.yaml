@@ -3,6 +3,7 @@ services:
     name: cybergrid-breach-sync
     runtime: node
     plan: free
+    region: ohio
     buildCommand: npm ci --include=dev && npm run build
     startCommand: npm start
     healthCheckPath: /api/health
