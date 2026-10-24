@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { createRng } from '@shared/rng';
-import { generateMap, generateValidMap, validateMap, FLOOR, tileAt, modulesForPlayers } from '@shared/map';
+import { generateMap, generateValidMap, validateMap, FLOOR, tileAt, modulesForPlayers, GATE_N, GATE_E, GATE_S, GATE_W, DIAG_TL, DIAG_TR, DIAG_BL, DIAG_BR } from '@shared/map';
+import { ROOM_TEMPLATES } from '@shared/templates';
 import { TILE } from '@shared/constants';
 
 describe('Generador procedimental de mapas', () => {
@@ -33,9 +34,51 @@ describe('Generador procedimental de mapas', () => {
     }
   });
 
-  it('llegadas, portales, monolitos y bóveda caen sobre piso', () => {
+  it('llegadas, portales y el Relicario caen sobre piso; hay 4 de cada uno por cuarto', () => {
     const map = generateValidMap(77);
-    const pts = [...map.spawns, ...map.portalCandidates, ...map.monoliths, map.vault];
-    for (const p of pts) expect(tileAt(map, Math.floor(p.x / TILE), Math.floor(p.y / TILE))).toBe(FLOOR);
+    expect(map.spawns).toHaveLength(4);
+    expect(map.portalCandidates).toHaveLength(4);
+    expect(map.monoliths).toHaveLength(4);
+    for (const p of [...map.spawns, ...map.portalCandidates, map.vault]) expect(tileAt(map, Math.floor(p.x / TILE), Math.floor(p.y / TILE))).toBe(FLOOR);
+  });
+
+  it('simetría girada: el mapa es igual a sí mismo girado 90° (justo para los 4 equipos)', () => {
+    const map = generateValidMap(2026, 4), W = map.width;
+    const ARROW: Record<number, number> = { [GATE_N]: GATE_E, [GATE_E]: GATE_S, [GATE_S]: GATE_W, [GATE_W]: GATE_N, [DIAG_TL]: DIAG_TR, [DIAG_TR]: DIAG_BR, [DIAG_BR]: DIAG_BL, [DIAG_BL]: DIAG_TL };
+    let diff = 0;
+    for (let y = 0; y < W; y++) for (let x = 0; x < W; x++) {
+      const t = map.tiles[y * W + x], r = map.tiles[x * W + (W - 1 - y)];
+      if ((ARROW[t] ?? t) !== r) diff++;
+    }
+    expect(diff).toBe(0);
+  });
+
+  it('cada partida cambia la estructura: funciones de los módulos distintas entre semillas', () => {
+    const sig = (s: number) => generateMap(s, 4).layout.map((m) => m.type).join();
+    const set = new Set([1, 2, 3, 4, 5, 6].map(sig));
+    expect(set.size).toBeGreaterThanOrEqual(4);
+  });
+});
+
+describe('Plantillas de sala', () => {
+  it('las 28 plantillas son de 16×16 y desde cada puerta se llega a todo el piso', () => {
+    expect(ROOM_TEMPLATES.length).toBeGreaterThanOrEqual(28);
+    const walk = '.=SPCcGRb<>^v';
+    for (const t of ROOM_TEMPLATES) {
+      expect(t.rows).toHaveLength(16);
+      for (const r of t.rows) expect(r).toHaveLength(16);
+      const at = (x: number, y: number) => (x < 0 || y < 0 || x > 15 || y > 15 ? ' ' : t.rows[y][x]);
+      const doors: [number, number][] = [];
+      for (let y = 0; y < 16; y++) for (let x = 0; x < 16; x++) if (at(x, y) === '=') doors.push([x, y]);
+      const seen = new Set([doors[0].join()]), q = [doors[0]];
+      while (q.length) {
+        const [x, y] = q.shift()!;
+        for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+          const a = x + dx, b = y + dy;
+          if (walk.includes(at(a, b)) && !seen.has(`${a},${b}`)) { seen.add(`${a},${b}`); q.push([a, b]); }
+        }
+      }
+      for (let y = 0; y < 16; y++) for (let x = 0; x < 16; x++) if (walk.includes(at(x, y))) expect(seen.has(`${x},${y}`), `${t.name} (${x},${y})`).toBe(true);
+    }
   });
 });

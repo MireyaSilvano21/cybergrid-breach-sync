@@ -1,10 +1,10 @@
 import {
-  TILE, PLAYER, INTERP_DELAY_MS, TICK_MS, WALL, ITEMS, createJitter, updateJitter, adaptiveDelay, viewScale, VISION_RADIUS, INTERACT_RANGE, generateValidMap, sampleBuffer, stepMove, replayMoves, pendingAfterAck, type MoveCmd, createRng, itemValue,
+  TILE, PLAYER, INTERP_DELAY_MS, TICK_MS, WALL, THIN, COVER, SEAL_VAULT, SEAL_HEART, DIAG_TL, DIAG_TR, DIAG_BL, DIAG_BR, GATE_DIR, isDiag, isGate, ITEMS, createJitter, updateJitter, adaptiveDelay, viewScale, VISION_RADIUS, INTERACT_RANGE, generateValidMap, sampleBuffer, stepMove, replayMoves, pendingAfterAck, type MoveCmd, createRng, itemValue,
   type GridMap, type TimedPosition,
 } from '@shared/index';
 import type { Net } from './net';
 import { Input } from './input';
-import { Sprites, buildFloorChunk, buildWall, wallKey, buildDecor, drawGrass, glowP, CHUNK, WALL_RISE, INK, type FloorChunk, type Decor, type ImgKey } from './art';
+import { Sprites, isDeepWall, drawDiagWall, drawThinCracks, drawCover, drawBars, drawBrazier, buildFloorChunk, buildWall, wallKey, buildDecor, drawGrass, glowP, CHUNK, WALL_RISE, INK, type FloorChunk, type Decor, type ImgKey } from './art';
 
 interface Remote { id: string; name: string; buf: TimedPosition[]; hp: number; ax: number; ay: number; atk: boolean; seen: number; lx: number; ly: number; walk: number; flash: number }
 type ChestKind = 'forja' | 'sarcofago' | 'ornamentado' | 'relicario';
@@ -19,6 +19,7 @@ const CHEST_ART: Record<ChestKind, { size: number; rgb: string }> = {
 };
 const CHEST_FILE = { closed: 'cerrado', open: 'abierto', empty: 'vacio' } as const;
 const CHUNK_PX = CHUNK * TILE;
+const DIAGS = { TL: DIAG_TL, TR: DIAG_TR, BL: DIAG_BL, BR: DIAG_BR };
 /** Arte de escenario de Astra: tamaño en el mundo (lienzo cuadrado, base al 94 %). */
 const PORTAL_SIZE = 300, MONO_SIZE = 200;
 /** Centro del anillo del portal respecto a su base, para luces y brillo. */
@@ -92,7 +93,11 @@ export class Game {
     this.ctx = canvas.getContext('2d')!;
     this.map = generateValidMap(start.seed, start.players);
     this.wallKeys = new Int16Array(this.map.width * this.map.height).fill(-1);
-    for (let y = 0; y < this.map.height; y++) for (let x = 0; x < this.map.width; x++) if (this.map.tiles[y * this.map.width + x] === WALL) this.wallKeys[y * this.map.width + x] = wallKey(this.map, x, y);
+    // Solo se dibujan los muros que tocan algo recorrible; el resto es oscuridad (como en un plano de mazmorra).
+    for (let y = 0; y < this.map.height; y++) for (let x = 0; x < this.map.width; x++) {
+      const t = this.map.tiles[y * this.map.width + x];
+      if ((t === WALL || t === THIN) && !isDeepWall(this.map, x, y)) this.wallKeys[y * this.map.width + x] = wallKey(this.map, x, y);
+    }
     this.decor = buildDecor(this.map);
     this.input = new Input(root);
     this.me.x = this.pred.x = this.cam.x = start.x;
@@ -216,6 +221,10 @@ export class Game {
     if (m.you.hp < this.me.hp && m.you.alive) { this.hurtAt = now; this.shake = Math.max(this.shake, 10); }
     Object.assign(this.me, { hp: m.you.hp, alive: m.you.alive, extracted: m.you.extracted });
     this.portals = m.portals; this.collapseR = m.collapseR;
+    // Mismos sellos que el servidor, según la fase (la física predicha debe coincidir).
+    const later = ['primera-llamada', 'segunda-llamada', 'cierre-portal-1', 'desnombrar', 'fin'];
+    this.map.sealsOpen.vault = later.includes(m.phase);
+    this.map.sealsOpen.heart = later.indexOf(m.phase) >= 1;
     this.chests = m.chests ?? []; this.remains = m.remains ?? [];
     const inv: string[] = m.you.inv ?? [];
     if (inv.join() !== this.inv.join()) this.renderInventory(inv);
@@ -370,8 +379,19 @@ export class Game {
     const tx0 = Math.max(0, Math.floor(v.x0 / T)), tx1 = Math.min(map.width - 1, Math.floor(v.x1 / T));
     const ty0 = Math.max(0, Math.floor(v.y0 / T)), ty1 = Math.min(map.height - 1, Math.floor((v.y1 + WALL_RISE) / T));
     for (let ty = ty0; ty <= ty1; ty++) for (let tx = tx0; tx <= tx1; tx++) {
-      const key = this.wallKeys[ty * map.width + tx];
-      if (key >= 0) list.push({ y: ty * T + T, draw: () => g.drawImage(this.wallImg(key), tx * T, ty * T - WALL_RISE, T, T + WALL_RISE) });
+      const key = this.wallKeys[ty * map.width + tx], tile = map.tiles[ty * map.width + tx];
+      if (key >= 0) list.push({ y: ty * T + T, draw: () => { g.drawImage(this.wallImg(key), tx * T, ty * T - WALL_RISE, T, T + WALL_RISE); if (tile === THIN) drawThinCracks(g, tx, ty); } });
+      else if (isDiag(tile)) list.push({ y: ty * T + T, draw: () => drawDiagWall(g, tile, tx, ty, DIAGS) });
+      else if (tile === COVER) list.push({ y: ty * T + T - 8, draw: () => drawCover(g, tx, ty, (tx * 7 + ty * 13) & 7) });
+      else if (tile === SEAL_VAULT && !map.sealsOpen.vault || tile === SEAL_HEART && !map.sealsOpen.heart) list.push({ y: ty * T + T - 4, draw: () => drawBars(g, tx, ty, true) });
+      else if (isGate(tile)) list.push({ y: ty * T + T - 4, draw: () => drawBars(g, tx, ty, false, GATE_DIR[tile]) });
+    }
+    // Objetos de las plantillas: hitos (braseros grandes), braseros pequeños y pilares Desnombrados.
+    for (const pr of map.props) {
+      if (pr.x < v.x0 - 120 || pr.x > v.x1 + 120 || pr.y < v.y0 - 60 || pr.y > v.y1 + 220) continue;
+      if (pr.kind === 'hito') list.push({ y: pr.y + 40, draw: () => { this.blob(pr.x, pr.y + 40, 40); drawBrazier(g, pr.x, pr.y + 40, true, art.img.flame, sec, pr.x); } });
+      else if (pr.kind === 'brasero') list.push({ y: pr.y + 22, draw: () => { this.blob(pr.x, pr.y + 22, 18); drawBrazier(g, pr.x, pr.y + 22, false, art.img.flame, sec, pr.y); } });
+      else if (pr.kind === 'pilar') list.push({ y: pr.y + 30, draw: () => { this.blob(pr.x, pr.y + 30, 34); this.drawScene('pilar_dormido', pr.x, pr.y + 30, 150); } });
     }
     const pushers = [{ x: this.me.x, y: this.me.y }];
     const remotesNow: { r: Remote; x: number; y: number }[] = [];
@@ -387,7 +407,7 @@ export class Game {
       else if (d.kind === 'grass') list.push({ y: d.y, draw: () => drawGrass(g, d, sec, pushers) });
       else list.push({ y: d.y + 0.5, draw: () => this.drawSconce(d, sec) });
     }
-    for (const mo of map.monoliths) if (mo.x > v.x0 - 100 && mo.x < v.x1 + 100 && mo.y > v.y0 && mo.y < v.y1 + 200) list.push({ y: mo.y, draw: () => { this.blob(mo.x, mo.y, 44); this.drawScene('monolito_dormido', mo.x, mo.y, MONO_SIZE); } });
+    for (const mo of map.monoliths) if (mo.x > v.x0 - 100 && mo.x < v.x1 + 100 && mo.y > v.y0 && mo.y < v.y1 + 200) list.push({ y: mo.y + 40, draw: () => { this.blob(mo.x, mo.y + 40, 48); this.drawScene('monolito_dormido', mo.x, mo.y + 40, MONO_SIZE); } });
     for (const p of this.portals) if (p.x > v.x0 - 160 && p.x < v.x1 + 160 && p.y > v.y0 && p.y < v.y1 + 320) list.push({ y: p.y - 6, draw: () => this.drawScene(`portal_${this.portalState(p)}`, p.x, p.y - 6, PORTAL_SIZE) });
     for (const { r, x, y } of remotesNow) list.push({ y, draw: () => this.drawActor({ x, y, ax: r.ax, ay: r.ay, me: false, walk: r.walk, swing: r.atk ? 0.5 : -1, flash: now - r.flash < 120 }) });
     if (this.me.alive && !this.me.extracted) {
@@ -409,7 +429,8 @@ export class Game {
       const st = this.portalState(p);
       lights.push({ x: p.x, y: p.y - 6 + PORTAL_RING.dy, r: st === 'apagado' ? 130 : 300, c: st === 'colapsando' ? '255,50,90' : st === 'abierto' ? '160,100,255' : '90,70,140', a: 0.22 });
     }
-    for (const mo of map.monoliths) lights.push({ x: mo.x, y: mo.y - 90, r: 120, c: '190,110,220', a: 0.15 });
+    for (const mo of map.monoliths) lights.push({ x: mo.x, y: mo.y - 50, r: 140, c: '190,110,220', a: 0.15 });
+    for (const pr of map.props) if (pr.kind === 'hito' || pr.kind === 'brasero') lights.push({ x: pr.x, y: pr.y - 20, r: pr.kind === 'hito' ? 260 : 170, c: '255,130,40', fl: pr.x * 0.01 });
     for (const c of this.chests) if (c.s !== 'empty') lights.push({ x: c.x, y: c.y - 30, r: c.s === 'open' ? 150 : 100, c: CHEST_ART[c.k ?? 'forja'].rgb, a: 0.14 });
     const vis = lights.filter((L) => L.x + L.r > v.x0 && L.x - L.r < v.x1 && L.y + L.r > v.y0 && L.y - L.r < v.y1);
     const d = this.dark.getContext('2d')!;

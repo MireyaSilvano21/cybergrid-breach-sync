@@ -9,12 +9,21 @@ Videojuego web multijugador de extracción en tiempo real. Canvas 2D en el clien
 | Arquitectura de red y sockets | `server/src/index.ts` (WebSocket en `/ws`, solo con token), `server/src/game.ts` (posiciones, colisiones, daño y extracción calculados en el servidor a 30 Hz). Ping/pong cada 2 s medido en un Web Worker, latencia visible en el HUD. Compensación de lag en los golpes (el servidor revisa contra lo que vio el atacante, máx. 250 ms), ataque predicho en el cliente y búfer de interpolación adaptable a la variación de la red. |
 | Motor Canvas 2D y controles | `client/src/game.ts`: bucle con *delta time* (`requestAnimationFrame`), interpolación de jugadores remotos y predicción local con reconciliación por comandos (`shared/src/prediction.ts`: el servidor aplica cada tramo de movimiento en orden y confirma hasta cuál llegó; el cliente reaplica lo pendiente, así que no hay tirones aunque la red varíe). `client/src/input.ts`: teclado/mouse en PC; joystick y botones táctiles que solo aparecen en pantallas táctiles. |
 | Endpoints de prueba | `GET /api/test/telemetry` (Win Rate, KDR, supervivencia y valor promedio extraído; agregados O(1)) y `POST /api/test/seed` (100–1000 partidas, validado con Zod). |
-| Pruebas y CI | 48 pruebas en Vitest (`shared/test`, `server/test`), 7 flujos en Playwright (`e2e/`: acceso, lobbies, canvas en PC y móvil, arrastre táctil y saqueo), pipeline en `.github/workflows/ci.yml` en cada Pull Request. |
+| Pruebas y CI | 55 pruebas en Vitest (`shared/test`, `server/test`), 7 flujos en Playwright (`e2e/`: acceso, lobbies, canvas en PC y móvil, arrastre táctil y saqueo), pipeline en `.github/workflows/ci.yml` en cada Pull Request. |
 | Despliegue | `render.yaml` (Render, un solo servicio con SSL). |
 
 ## Bucle de juego actual
 
-Cada equipo aparece junto a un cofre. Los cofres se colocan con la semilla del mapa y hay cuatro tipos: Cofre de la Forja junto a cada llegada, Sarcófago Rúnico en las salas, Arcón Ornamentado en las cámaras (3 objetos, tabla rara) y un único Relicario Antiguo en la Bóveda (4 objetos). Cada uno tiene tres estados: cerrado, abierto y vacío. Con **F** (o el botón **Usar** en móvil) se abre el cofre y con otra pulsación se toma el botín, que va a una mochila de 10 casillas validada en el servidor. Al morir, el botín queda en el suelo como **Restos** que cualquiera puede saquear; al extraer por un portal abierto, su valor se registra en la telemetría.
+Cada equipo aparece junto a un cofre. Los cofres salen de las plantillas de sala y su tipo depende de la función de la sala: Cofre de la Forja en llegadas y galerías, Sarcófago Rúnico en los osarios, Arcón Ornamentado en santuarios y bóvedas (3 objetos, tabla rara) y un único Relicario Antiguo en el Corazón (4 objetos). Cada uno tiene tres estados: cerrado, abierto y vacío. Con **F** (o el botón **Usar** en móvil) se abre el cofre y con otra pulsación se toma el botín, que va a una mochila de 10 casillas validada en el servidor. Al morir, el botín queda en el suelo como **Restos** que cualquiera puede saquear; al extraer por un portal abierto, su valor se registra en la telemetría.
+
+### Mapa procedural (la Grid)
+
+`shared/src/map.ts` genera el mapa en dos niveles con la semilla de la partida:
+
+1. **Estructura:** qué módulos de 16×16 existen, qué función tiene cada uno (llegada, galería, osario, cruce, santuario, plaza de portal, bóveda, Corazón o pasaje) y cómo se conectan (árbol al azar más lazos). El riesgo sube del borde al centro.
+2. **Salas:** cada función toma una de las 28 plantillas de `shared/src/templates.ts`, girada o volteada.
+
+Se genera un cuarto del mapa y se copia girado 90° alrededor del centro (simetría de rehilete), así los 4 equipos reciben el mismo cuarto. Las plantillas traen abismos (se ven, no se cruzan), muros delgados, rejas de un solo sentido, sellos de bóveda que se abren en la Primera Llamada y del Corazón en la Segunda, cobertura y muros en diagonal con colisión exacta.
 
 ### Estilo visual "Forja Apagada"
 

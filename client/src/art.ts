@@ -3,7 +3,7 @@
  * Todo se genera con código (SVG y Canvas) a partir de la semilla del mapa, así que el
  * cliente no descarga texturas pesadas y cada partida se ve distinta pero coherente.
  */
-import { TILE, WALL, createRng, type GridMap } from '@shared/index';
+import { TILE, WALL, FLOOR, PIT, THIN, isDiag, createRng, type GridMap } from '@shared/index';
 
 export const INK = '#1d0c16';
 type Ctx = CanvasRenderingContext2D;
@@ -147,7 +147,8 @@ function hash(a: number, b: number, c: number): number {
 /** Pinta un trozo de 8×8 casillas: losas de varios tamaños, manchas, grietas de brasa y sombra junto a los muros. */
 export function buildFloorChunk(map: GridMap, cx: number, cy: number): FloorChunk {
   const size = CHUNK * TILE, [c, f] = canvas(size, size, 1), r = createRng(hash(map.seed, cx, cy));
-  const solid = (x: number, y: number) => x < 0 || y < 0 || x >= map.width || y >= map.height || map.tiles[y * map.width + x] === WALL;
+  const at = (x: number, y: number) => (x < 0 || y < 0 || x >= map.width || y >= map.height ? WALL : map.tiles[y * map.width + x]);
+  const solid = (x: number, y: number) => { const t = at(x, y); return t === WALL || t === THIN || isDiag(t); };
   const tx0 = cx * CHUNK, ty0 = cy * CHUNK;
   f.fillStyle = '#211b2b'; f.fillRect(0, 0, size, size);
   const M = size / CELL, occ = new Uint8Array(M * M);
@@ -188,7 +189,20 @@ export function buildFloorChunk(map: GridMap, cx: number, cy: number): FloorChun
   };
   for (let y = 0; y < CHUNK; y++) for (let x = 0; x < CHUNK; x++) {
     const mx = tx0 + x, my = ty0 + y, X = x * TILE, Y = y * TILE;
-    if (solid(mx, my)) { f.fillStyle = '#140c18'; f.fillRect(X, Y, TILE, TILE); continue; }
+    if (at(mx, my) === WALL) { f.fillStyle = isDeepWall(map, mx, my) ? '#07040b' : '#140c18'; f.fillRect(X, Y, TILE, TILE); continue; }
+    if (at(mx, my) === PIT) {
+      // Abismo: negro con un borde de roca donde el piso de arriba se corta.
+      const g = f.createLinearGradient(0, Y, 0, Y + TILE); g.addColorStop(0, '#0b0510'); g.addColorStop(1, '#030106');
+      f.fillStyle = g; f.fillRect(X, Y, TILE, TILE);
+      if (at(mx, my - 1) !== PIT) {
+        f.fillStyle = '#3a3350'; f.fillRect(X, Y, TILE, 16); f.fillStyle = '#2a2438'; f.fillRect(X, Y + 16, TILE, 6);
+        strokeP(f, [[X, Y + 22], [X + TILE, Y + 22]], INK, 2.4);
+      }
+      if (at(mx - 1, my) !== PIT) strokeP(f, [[X + 1, Y], [X + 1, Y + TILE]], INK, 2.4);
+      if (at(mx + 1, my) !== PIT) strokeP(f, [[X + TILE - 1, Y], [X + TILE - 1, Y + TILE]], INK, 2.4);
+      continue;
+    }
+    if (isDiag(at(mx, my))) continue;
     if (solid(mx, my - 1)) ao(X, Y, TILE, 50, 0, Y, 0, Y + 50, 0.75);
     if (solid(mx - 1, my)) ao(X, Y, 32, TILE, X, 0, X + 32, 0, 0.65);
     if (solid(mx + 1, my)) ao(X + TILE - 32, Y, 32, TILE, X + TILE, 0, X + TILE - 32, 0, 0.65);
@@ -228,7 +242,8 @@ export function buildWall(key: number): HTMLCanvasElement {
 
 export function wallKey(map: GridMap, x: number, y: number): number {
   // Fuera del mapa cuenta como vacío para que el borde exterior también lleve contorno de tinta.
-  const solid = (a: number, b: number) => a >= 0 && b >= 0 && a < map.width && b < map.height && map.tiles[b * map.width + a] === WALL;
+  // Los muros profundos (en oscuridad) cuentan como vacío: el borde lleva contorno de tinta.
+  const solid = (a: number, b: number) => { if (a < 0 || b < 0 || a >= map.width || b >= map.height) return false; const t = map.tiles[b * map.width + a]; return (t === WALL || t === THIN || isDiag(t)) && !isDeepWall(map, a, b); };
   return (solid(x, y - 1) ? 1 : 0) | (solid(x - 1, y) ? 2 : 0) | (solid(x + 1, y) ? 4 : 0) | (y + 1 >= map.height || solid(x, y + 1) ? 0 : 8) | ((hash(map.seed, x, y) & 3) << 4);
 }
 
@@ -242,7 +257,7 @@ export function buildDecor(map: GridMap): Decor[] {
   const at = (x: number, y: number) => (x < 0 || y < 0 || x >= map.width || y >= map.height ? WALL : map.tiles[y * map.width + x]);
   const taken = new Set<number>();
   const near = (p: { x: number; y: number }[], x: number, y: number, d: number) => p.some((q) => Math.hypot(q.x - x, q.y - y) < d);
-  const keep = [...map.spawns, ...map.portalCandidates, ...map.monoliths, map.vault];
+  const keep = [...map.spawns, ...map.portalCandidates, ...map.monoliths, map.vault, ...map.chestSpots, ...map.props];
   for (let y = 0; y < map.height - 1; y++) for (let x = 1; x < map.width - 1; x++) {
     const t = at(x, y), h = hash(map.seed, x, y);
     if (t === WALL) {
@@ -254,7 +269,7 @@ export function buildDecor(map: GridMap): Decor[] {
       continue;
     }
     const px = x * TILE + 8 + r() * (TILE - 16), py = y * TILE + 8 + r() * (TILE - 16);
-    if (near(keep, px, py, 110)) continue;
+    if (t !== FLOOR || near(keep, px, py, 110)) continue;
     if (y === 0) continue;
     if (h % 61 === 0) out.push({ kind: 'skull', x: px, y: py, ph: 0 });
     else if (h % 37 === 0) {
@@ -279,4 +294,85 @@ export function drawGrass(g: Ctx, d: Decor, t: number, pushers: { x: number; y: 
     const mx = (bx + 2 * qx + tx) / 4, my = (by + 2 * qy + ty) / 4;
     g.strokeStyle = b.tone < 0.5 ? '#d0504c' : '#ad3c46'; g.lineWidth = b.w * 0.6; g.beginPath(); g.moveTo(mx, my); g.quadraticCurveTo((qx + tx) / 2, (qy + ty) / 2, tx, ty); g.stroke();
   }
+}
+
+// ---------- piezas del mapa por plantillas ----------
+
+/** Muro "profundo": no toca nada recorrible en sus 8 vecinos; se deja en oscuridad. */
+export function isDeepWall(map: GridMap, x: number, y: number): boolean {
+  for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+    const a = x + dx, b = y + dy;
+    if (a < 0 || b < 0 || a >= map.width || b >= map.height) continue;
+    const t = map.tiles[b * map.width + a];
+    if (t !== WALL && t !== THIN && !isDiag(t)) return false;
+  }
+  return true;
+}
+
+const STONE_CAP = '#6a6687', STONE_FACE = '#3e3953';
+
+/** Muro en diagonal en tres cuartos: tapa triangular levantada y, si mira al sur, su cara. */
+export function drawDiagWall(g: Ctx, t: number, tx: number, ty: number, kinds: { TL: number; TR: number; BL: number; BR: number }) {
+  const x0 = tx * TILE, y0 = ty * TILE, x1 = x0 + TILE, y1 = y0 + TILE, R = WALL_RISE;
+  const tri: Pt[] = t === kinds.TL ? [[x0, y0], [x1, y0], [x0, y1]] : t === kinds.TR ? [[x0, y0], [x1, y0], [x1, y1]] : t === kinds.BL ? [[x0, y0], [x0, y1], [x1, y1]] : [[x1, y0], [x1, y1], [x0, y1]];
+  if (t === kinds.TL || t === kinds.TR) {
+    const [a, b] = t === kinds.TL ? [tri[1], tri[2]] : [tri[0], tri[2]];
+    poly(g, [[a[0], a[1] - R], [b[0], b[1] - R], [b[0], b[1]], [a[0], a[1]]]);
+    g.fillStyle = STONE_FACE; g.fill(); g.strokeStyle = INK; g.lineWidth = 3; g.stroke();
+    strokeP(g, [[a[0], a[1] - R + 3], [b[0], b[1] - R + 3]], 'rgba(190,175,215,.45)', 1.4);
+  }
+  poly(g, tri.map(([x, y]) => [x, y - R] as Pt));
+  g.fillStyle = STONE_CAP; g.fill(); g.strokeStyle = INK; g.lineWidth = 3.4; g.stroke();
+}
+
+/** Muro delgado: igual que un muro, con grietas de brasa que delatan que se puede abrir. */
+export function drawThinCracks(g: Ctx, tx: number, ty: number) {
+  const x = tx * TILE, y = ty * TILE - WALL_RISE;
+  glowP(g, [[x + 14, y + 10], [x + 26, y + 26], [x + 22, y + 40], [x + 36, y + 54]], '255,140,60', 0.7);
+  glowP(g, [[x + 46, y + 18], [x + 38, y + 34]], '255,140,60', 0.6);
+}
+
+/** Escombros, cajas o estantes: cobertura de una casilla. */
+export function drawCover(g: Ctx, tx: number, ty: number, variant: number) {
+  const x = tx * TILE + 6, y = ty * TILE + 10, w = TILE - 12, h = TILE - 22, R = 22;
+  if (variant % 3 === 2) { // escombros
+    for (const [ox, oy, s] of [[8, 34, 18], [28, 30, 22], [40, 40, 14], [18, 18, 14]]) {
+      poly(g, [[x + ox - s / 2, y + oy], [x + ox - s / 3, y + oy - s * 0.7], [x + ox + s / 3, y + oy - s * 0.8], [x + ox + s / 2, y + oy]]);
+      g.fillStyle = '#5a5470'; g.fill(); g.strokeStyle = INK; g.lineWidth = 2.6; g.stroke();
+    }
+    return;
+  }
+  // Caja: cara frontal y tapa levantada.
+  poly(g, [[x, y + h - R], [x + w, y + h - R], [x + w, y + h], [x, y + h]]); g.fillStyle = '#6b3f26'; g.fill(); g.strokeStyle = INK; g.lineWidth = 2.8; g.stroke();
+  poly(g, [[x, y - R + 4], [x + w, y - R + 4], [x + w, y + h - R], [x, y + h - R]]); g.fillStyle = variant % 3 ? '#9a6238' : '#8a5530'; g.fill(); g.stroke();
+  strokeP(g, [[x + 6, y - R + 12], [x + w - 6, y + h - R - 6]], '#5a3420', 2.2);
+  strokeP(g, [[x, y + h - R + 8], [x + w, y + h - R + 8]], '#4a2a18', 2);
+}
+
+/** Barrotes: sello dorado de bóveda o reja de hierro de un solo sentido. */
+export function drawBars(g: Ctx, tx: number, ty: number, gold: boolean, dir?: [number, number]) {
+  const x = tx * TILE, y = ty * TILE, R = 46;
+  const col = gold ? '#d9a54a' : '#7a7690', dark = gold ? '#8a5a1c' : '#3e3a52';
+  poly(g, [[x + 2, y + TILE - 8 - R], [x + TILE - 2, y + TILE - 8 - R], [x + TILE - 2, y + TILE - 2 - R], [x + 2, y + TILE - 2 - R]]);
+  g.fillStyle = dark; g.fill(); g.strokeStyle = INK; g.lineWidth = 2.4; g.stroke();
+  for (let i = 0; i < 4; i++) {
+    const bx = x + 9 + i * 15;
+    poly(g, [[bx - 3, y + TILE - 6 - R], [bx + 3, y + TILE - 6 - R], [bx + 3, y + TILE - 6], [bx - 3, y + TILE - 6]]);
+    g.fillStyle = col; g.fill(); g.strokeStyle = INK; g.lineWidth = 2; g.stroke();
+  }
+  if (dir) {
+    // Flecha en el piso: hacia dónde se puede cruzar.
+    const cx = x + TILE / 2 + dir[0] * 14, cy = y + TILE / 2 + dir[1] * 14 + 10, px = -dir[1], py = dir[0];
+    poly(g, [[cx + dir[0] * 9, cy + dir[1] * 9], [cx + px * 8 - dir[0] * 4, cy + py * 8 - dir[1] * 4], [cx - px * 8 - dir[0] * 4, cy - py * 8 - dir[1] * 4]]);
+    g.fillStyle = 'rgba(160,220,255,.85)'; g.fill(); g.strokeStyle = INK; g.lineWidth = 2; g.stroke();
+  }
+}
+
+/** Brasero de pie: grande para los hitos de cruce y llegada, pequeño en salas. */
+export function drawBrazier(g: Ctx, x: number, y: number, big: boolean, flame: HTMLImageElement | undefined, sec: number, ph: number) {
+  const s = big ? 1.7 : 1;
+  poly(g, [[x - 12 * s, y], [x - 6 * s, y - 26 * s], [x + 6 * s, y - 26 * s], [x + 12 * s, y]]); g.fillStyle = '#2e2937'; g.fill(); g.strokeStyle = INK; g.lineWidth = 3; g.stroke();
+  poly(g, [[x - 22 * s, y - 34 * s], [x + 22 * s, y - 34 * s], [x + 16 * s, y - 24 * s], [x - 16 * s, y - 24 * s]]); g.fillStyle = '#3e3446'; g.fill(); g.stroke();
+  strokeP(g, [[x - 18 * s, y - 31 * s], [x + 18 * s, y - 31 * s]], '#ff8a2a', 2.4);
+  if (flame) { const f = 1 + Math.sin(sec * 11 + ph) * 0.08 + Math.sin(sec * 23 + ph) * 0.04; g.save(); g.translate(x, y - 32 * s); g.scale(s / f, s * f); g.drawImage(flame, -16, -42, 32, 42); g.restore(); }
 }
