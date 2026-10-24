@@ -75,8 +75,13 @@
       <span id="ping" class="mono">— ms</span>
       <span id="fps" class="mono"></span>
     </div>
+    <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+    <div id="inventory" class="inv" data-count="0" data-value="0" aria-label="Mochila">
+      <div id="inv-slots" class="slots"></div>
+      <span id="inv-value" class="inv-value">0</span>
+    </div>
     <div id="sync" class="sync" hidden><div id="sync-bar"></div><span>Sincronizando con el portal…</span></div>
-    <p id="hint" class="hint">WASD mover · clic atacar · mantener F junto a un portal abierto para escapar</p>
+    <p id="hint" class="hint">WASD mover · clic atacar · F abrir cofres y tomar botín · mantener F en un portal abierto para escapar</p>
     <div id="player-state" hidden data-x="0" data-y="0" data-hp="100"></div>
     <div id="touch" class="touch" hidden>
       <div id="stick-zone" class="stick-zone" aria-hidden="true"></div>

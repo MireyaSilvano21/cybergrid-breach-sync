@@ -26,6 +26,8 @@ export const ClientMessageSchema = z.discriminatedUnion('type', [
     ay: z.number().min(-1).max(1),
     attack: z.boolean(),
     interact: z.boolean(),
+    /** Pulso de "usar": abrir un cofre o tomar botín. */
+    use: z.boolean().default(false),
   }),
 ]);
 export type ClientMessage = z.infer<typeof ClientMessageSchema>;
@@ -38,6 +40,8 @@ export const PlayerRecordSchema = z.object({
   deaths: z.number().int().min(0).max(500),
   survivedS: z.number().min(0).max(3600),
   extracted: z.boolean(),
+  /** Valor del botín con el que escapó (0 si murió). */
+  lootValue: z.number().min(0).max(1_000_000).default(0),
 });
 
 export const MatchRecordSchema = z.object({
@@ -46,7 +50,8 @@ export const MatchRecordSchema = z.object({
   durationS: z.number().min(0).max(3600),
   players: z.array(PlayerRecordSchema).min(1).max(12),
 });
-export type MatchRecord = z.infer<typeof MatchRecordSchema>;
+/** Se usa el tipo de entrada: lootValue es opcional al registrar una partida. */
+export type MatchRecord = z.input<typeof MatchRecordSchema>;
 
 /**
  * Payload de POST /api/test/seed: partidas explícitas (100–1000) o una orden de generarlas.

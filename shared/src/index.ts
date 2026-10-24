@@ -7,3 +7,4 @@ export * from './phases';
 export * from './map';
 export * from './schemas';
 export * from './physics';
+export * from './loot';

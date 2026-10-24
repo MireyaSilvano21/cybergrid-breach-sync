@@ -2,14 +2,19 @@
 export class Input {
   mx = 0; my = 0;
   aimX = 0; aimY = 1;
-  attack = false; interact = false;
+  attack = false; interact = false; use = false;
   touch = false;
   private keys = new Set<string>();
   private mouse: { x: number; y: number } | null = null;
   private stick = { x: 0, y: 0 };
 
   constructor(private root: HTMLElement) {
-    addEventListener('keydown', (e) => { this.keys.add(e.key.toLowerCase()); if (e.key === ' ') this.attack = true; });
+    addEventListener('keydown', (e) => {
+      const k = e.key.toLowerCase();
+      this.keys.add(k);
+      if (e.key === ' ') this.attack = true;
+      if ((k === 'f' || k === 'e') && !e.repeat) this.use = true;
+    });
     addEventListener('keyup', (e) => this.keys.delete(e.key.toLowerCase()));
     addEventListener('blur', () => this.keys.clear());
     const canvas = root.querySelector('canvas')!;
@@ -67,7 +72,7 @@ export class Input {
 
     const atk = this.root.querySelector<HTMLElement>('#t-attack')!, use = this.root.querySelector<HTMLElement>('#t-interact')!;
     atk.addEventListener('pointerdown', (e) => { e.preventDefault(); this.attack = true; this.requestFullscreen(); });
-    use.addEventListener('pointerdown', (e) => { e.preventDefault(); this.useHeld = true; });
+    use.addEventListener('pointerdown', (e) => { e.preventDefault(); this.useHeld = true; this.use = true; });
     use.addEventListener('pointerup', () => { this.useHeld = false; });
     use.addEventListener('pointercancel', () => { this.useHeld = false; });
     for (const b of [atk, use]) b.addEventListener('contextmenu', (e) => e.preventDefault());
@@ -110,4 +115,5 @@ export class Input {
   }
 
   consumeAttack() { const a = this.attack; this.attack = false; return a; }
+  consumeUse() { const u = this.use; this.use = false; return u; }
 }

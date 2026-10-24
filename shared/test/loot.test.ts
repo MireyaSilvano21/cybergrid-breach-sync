@@ -1,0 +1,41 @@
+import { describe, expect, it } from 'vitest';
+import { addToInventory, placeChests, itemValue, slotsUsed, INVENTORY_SLOTS, ITEMS } from '@shared/loot';
+import { generateValidMap, tileAt, FLOOR } from '@shared/map';
+import { TILE } from '@shared/constants';
+
+describe('Cofres y botín', () => {
+  it('la misma semilla coloca los mismos cofres con el mismo botín, siempre sobre piso', () => {
+    const map = generateValidMap(2026);
+    const a = placeChests(map), b = placeChests(map);
+    expect(a).toEqual(b);
+    expect(a.length).toBeGreaterThan(map.spawns.length);
+    for (const c of a) {
+      expect(tileAt(map, Math.floor(c.x / TILE), Math.floor(c.y / TILE))).toBe(FLOOR);
+      for (const id of c.items) expect(ITEMS[id]).toBeDefined();
+    }
+  });
+
+  it('cada llegada tiene un cofre cercano', () => {
+    const map = generateValidMap(77);
+    const chests = placeChests(map);
+    for (const sp of map.spawns) {
+      const d = Math.min(...chests.map((c) => Math.hypot(c.x - sp.x, c.y - sp.y)));
+      expect(d).toBeLessThan(TILE * 5);
+    }
+  });
+});
+
+describe('Inventario', () => {
+  it('respeta las 10 casillas: las reliquias grandes ocupan 2', () => {
+    const full = Array.from({ length: 4 }, () => 'corona'); // 8 casillas
+    const r = addToInventory(full, ['martillo', 'idolo', 'orbe']);
+    expect(slotsUsed(r.inventory)).toBeLessThanOrEqual(INVENTORY_SLOTS);
+    expect(r.taken).toEqual(['martillo']);
+    expect(r.left).toEqual(['idolo', 'orbe']);
+  });
+
+  it('calcula el valor total del botín', () => {
+    expect(itemValue(['corona', 'esquirlas'])).toBe(ITEMS.corona.value + ITEMS.esquirlas.value);
+    expect(itemValue([])).toBe(0);
+  });
+});

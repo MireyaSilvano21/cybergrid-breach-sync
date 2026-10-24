@@ -141,7 +141,7 @@ net.on('end', (m) => {
   $('result-title').textContent = 'Partida terminada';
   $('result-list').replaceChildren(...m.results.map((p: any) => {
     const li = document.createElement('li');
-    li.textContent = `${p.name} · ${p.extracted ? 'Extrajo' : 'Cayó'} · ${p.kills} bajas · ${Math.round(p.survivedS)} s`;
+    li.textContent = `${p.name} · ${p.extracted ? `Extrajo ${p.lootValue ?? 0} ◆` : 'Cayó'} · ${p.kills} bajas · ${Math.round(p.survivedS)} s`;
     return li;
   }));
   $('result').hidden = false;

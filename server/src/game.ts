@@ -1,6 +1,7 @@
 import {
   PLAYER, TICK_MS, SYNC_SECONDS, computeDamage, applyHealth, generateValidMap, moveCircle, hasLineOfSight,
-  phaseAt, scalePhases, DEFAULT_PHASES, type GridMap, type InputMessage, type MatchRecord, type PhaseConfig,
+  phaseAt, scalePhases, DEFAULT_PHASES, placeChests, addToInventory, itemValue, INTERACT_RANGE,
+  type GridMap, type InputMessage, type MatchRecord, type PhaseConfig,
 } from '@shared/index';
 import { config } from './config';
 
@@ -15,7 +16,13 @@ interface Actor {
   cooldownUntil: number; attackAt: number;
   syncT: number;
   kills: number; deaths: number; endedAt: number | null;
+  inventory: string[];
+  /** Pulsos recibidos entre ticks: un toque rápido nunca se pierde. */
+  pendingAttack: boolean; pendingUse: boolean;
 }
+
+export interface Chest { id: string; x: number; y: number; state: 'closed' | 'open' | 'empty'; items: string[] }
+export interface Remains { id: string; x: number; y: number; items: string[]; owner: string }
 
 const VIEW_RADIUS = 900;
 const PORTAL_RADIUS = 80;
@@ -27,12 +34,15 @@ export class Match {
   readonly map: GridMap;
   readonly phases: PhaseConfig = scalePhases(DEFAULT_PHASES, config.matchScale);
   private actors = new Map<string, Actor>();
+  readonly chests: Chest[];
+  readonly remains: Remains[] = [];
   private startedAt = Date.now();
   private timer: NodeJS.Timeout | null = null;
   private finished = false;
 
   constructor(conns: Conn[], private onEnd: (record: MatchRecord) => void) {
     this.map = generateValidMap(this.seed, conns.length);
+    this.chests = placeChests(this.map).map((c) => ({ ...c, state: 'closed' as const }));
     conns.forEach((conn, i) => {
       const sp = this.map.spawns[i % this.map.spawns.length];
       const ring = Math.floor(i / this.map.spawns.length);
@@ -41,6 +51,7 @@ export class Match {
         hp: PLAYER.maxHp, shield: 0, alive: true, extracted: false,
         input: null, lastSeq: 0, cooldownUntil: 0, attackAt: 0, syncT: 0,
         kills: 0, deaths: 0, endedAt: null,
+        inventory: [], pendingAttack: false, pendingUse: false,
       });
     });
   }
@@ -54,8 +65,14 @@ export class Match {
 
   handleInput(id: string, msg: InputMessage) {
     const a = this.actors.get(id);
-    if (a && msg.seq >= a.lastSeq) a.input = msg;
+    if (!a || msg.seq < a.lastSeq) return;
+    a.input = msg;
+    if (msg.attack) a.pendingAttack = true;
+    if (msg.use) a.pendingUse = true;
   }
+
+  /** Acceso de solo lectura para pruebas. */
+  actor(id: string) { return this.actors.get(id); }
 
   removePlayer(id: string) {
     const a = this.actors.get(id);
@@ -73,9 +90,10 @@ export class Match {
     ];
   }
 
-  private tick() {
+  /** Avanza la simulación un tick. Público para poder probarla sin temporizadores. */
+  tick(now = Date.now()) {
     if (this.finished) return;
-    const now = Date.now(), dt = TICK_MS / 1000, t = this.elapsed();
+    const dt = TICK_MS / 1000, t = (now - this.startedAt) / 1000;
     const ph = phaseAt(t, this.phases);
     const portals = this.openPortals(t);
     const lastPortal = portals[1];
@@ -95,14 +113,19 @@ export class Match {
         a.x = p.x; a.y = p.y;
         const al = Math.hypot(inp.ax, inp.ay);
         if (al > 0.1) { a.ax = inp.ax / al; a.ay = inp.ay / al; }
-        if (inp.attack && now >= a.cooldownUntil) this.attack(a, now);
+        if (a.pendingAttack && now >= a.cooldownUntil) this.attack(a, now);
+        if (a.pendingUse) this.use(a);
         // Extracción: mantener interactuar junto a un portal abierto.
         const portal = portals.find((pt) => pt.open && Math.hypot(pt.x - a.x, pt.y - a.y) < PORTAL_RADIUS);
         if (portal && inp.interact) {
           a.syncT += dt;
-          if (a.syncT >= SYNC_SECONDS[1]) { a.extracted = true; a.endedAt = now; a.conn.send({ type: 'extracted' }); }
+          if (a.syncT >= SYNC_SECONDS[1]) {
+            a.extracted = true; a.endedAt = now;
+            a.conn.send({ type: 'extracted', value: itemValue(a.inventory), items: a.inventory });
+          }
         } else a.syncT = 0;
       }
+      a.pendingAttack = false; a.pendingUse = false;
       if (Number.isFinite(collapseR) && Math.hypot(a.x - lastPortal.x, a.y - lastPortal.y) > collapseR) {
         this.hurt(a, 8 * dt * 4, null);
       }
@@ -126,14 +149,47 @@ export class Match {
     }
   }
 
+  /**
+   * Usar: el servidor valida distancia y estado. Un cofre cerrado se abre; uno abierto
+   * (o unos Restos) entrega lo que quepa en la mochila.
+   */
+  private use(a: Actor) {
+    const near = <T extends { x: number; y: number }>(list: T[]) =>
+      list.map((o) => ({ o, d: Math.hypot(o.x - a.x, o.y - a.y) })).filter((e) => e.d <= INTERACT_RANGE).sort((x, y) => x.d - y.d)[0]?.o;
+    const chest = near(this.chests.filter((c) => c.state !== 'empty'));
+    const rem = near(this.remains);
+    const target = chest && rem ? (Math.hypot(chest.x - a.x, chest.y - a.y) <= Math.hypot(rem.x - a.x, rem.y - a.y) ? chest : rem) : chest ?? rem;
+    if (!target) return;
+    if ('state' in target && target.state === 'closed') {
+      target.state = 'open';
+      a.conn.send({ type: 'opened', id: target.id, items: target.items });
+      return;
+    }
+    const r = addToInventory(a.inventory, target.items);
+    if (!r.taken.length) { a.conn.send({ type: 'notice', message: 'Tu mochila está llena.' }); return; }
+    a.inventory = r.inventory;
+    target.items = r.left;
+    if ('state' in target) { if (!r.left.length) target.state = 'empty'; }
+    else if (!r.left.length) this.remains.splice(this.remains.indexOf(target), 1);
+    a.conn.send({ type: 'looted', items: r.taken, left: r.left.length });
+  }
+
   private hurt(b: Actor, dmg: number, by: Actor | null) {
     b.hp = applyHealth(b.hp, dmg);
     b.syncT = 0;
     if (b.hp <= 0 && b.alive) {
       b.alive = false; b.deaths++; b.endedAt = Date.now();
       if (by) by.kills++;
+      this.dropRemains(b);
       b.conn.send({ type: 'died', by: by?.conn.name ?? 'El Desnombrar' });
     }
+  }
+
+  /** Al morir, todo lo que llevaba queda en el suelo como Restos que cualquiera puede saquear. */
+  private dropRemains(b: Actor) {
+    if (!b.inventory.length) return;
+    this.remains.push({ id: `r${this.remains.length}-${b.conn.id}`, x: b.x, y: b.y, items: b.inventory, owner: b.conn.name });
+    b.inventory = [];
   }
 
   private broadcast(t: number, phase: string, portals: { x: number; y: number; open: boolean }[], collapseR: number) {
@@ -147,7 +203,9 @@ export class Match {
         type: 'snap', t: Date.now(), time: Math.round(t * 10) / 10, phase,
         timeLeft: Math.max(0, Math.round(this.phases.fin - t)),
         portals, collapseR: Number.isFinite(collapseR) ? Math.round(collapseR) : null,
-        you: { x: a.x, y: a.y, hp: a.hp, alive: a.alive, extracted: a.extracted, sync: a.syncT, syncNeed: SYNC_SECONDS[1], seq: a.lastSeq, kills: a.kills, atk: Date.now() - a.attackAt < 200 },
+        chests: this.chests.filter((c) => Math.hypot(c.x - a.x, c.y - a.y) < VIEW_RADIUS).map((c) => ({ id: c.id, x: c.x, y: c.y, s: c.state })),
+        remains: this.remains.filter((r) => Math.hypot(r.x - a.x, r.y - a.y) < VIEW_RADIUS).map((r) => ({ id: r.id, x: Math.round(r.x), y: Math.round(r.y), owner: r.owner })),
+        you: { x: a.x, y: a.y, hp: a.hp, alive: a.alive, extracted: a.extracted, sync: a.syncT, syncNeed: SYNC_SECONDS[1], seq: a.lastSeq, kills: a.kills, atk: Date.now() - a.attackAt < 200, inv: a.inventory },
         others,
       });
     }
@@ -158,9 +216,10 @@ export class Match {
     if (this.timer) clearInterval(this.timer);
     const durationS = (now - this.startedAt) / 1000;
     const players = [...this.actors.values()].map((a) => {
-      if (a.alive && !a.extracted) { a.alive = false; a.deaths++; a.endedAt = now; }
+      if (a.alive && !a.extracted) { a.alive = false; a.deaths++; a.endedAt = now; a.inventory = []; }
       return {
         name: a.conn.name, kills: a.kills, deaths: a.deaths, extracted: a.extracted,
+        lootValue: a.extracted ? itemValue(a.inventory) : 0,
         survivedS: Math.round(((a.endedAt ?? now) - this.startedAt) / 100) / 10,
       };
     });
