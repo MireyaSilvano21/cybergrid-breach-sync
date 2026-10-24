@@ -28,6 +28,8 @@ export const ClientMessageSchema = z.discriminatedUnion('type', [
     interact: z.boolean(),
     /** Pulso de "usar": abrir un cofre o tomar botín. */
     use: z.boolean().default(false),
+    /** Hora del servidor del estado que el cliente dibujaba al atacar (compensación de lag). */
+    viewT: z.number().finite().optional(),
   }),
 ]);
 export type ClientMessage = z.infer<typeof ClientMessageSchema>;

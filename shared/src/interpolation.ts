@@ -28,3 +28,24 @@ export function sampleBuffer(buffer: TimedPosition[], renderTime: number): Vec2 
   const last = buffer[buffer.length - 1];
   return { x: last.x, y: last.y };
 }
+
+/**
+ * Búfer de suavizado adaptable (como el "Network Buffering" de Valorant o el búfer de
+ * Overwatch): si los paquetes llegan con mucha variación, se espera un poco más antes de
+ * dibujar a los demás jugadores para que no den tirones.
+ */
+export interface JitterState { lastArrival: number | null; jitter: number }
+
+export function createJitter(): JitterState { return { lastArrival: null, jitter: 0 }; }
+
+/** Actualiza la variación estimada (promedio móvil exponencial de la desviación entre llegadas). */
+export function updateJitter(state: JitterState, arrival: number, expectedGapMs: number): JitterState {
+  if (state.lastArrival === null) return { lastArrival: arrival, jitter: state.jitter };
+  const deviation = Math.abs(arrival - state.lastArrival - expectedGapMs);
+  return { lastArrival: arrival, jitter: state.jitter + (deviation - state.jitter) / 16 };
+}
+
+/** Retraso de interpolación: dos ticks como base, más margen según la variación medida. */
+export function adaptiveDelay(jitterMs: number, tickMs: number, maxMs = 250): number {
+  return Math.min(maxMs, Math.max(tickMs * 2, tickMs * 2 + jitterMs * 2.5));
+}

@@ -1,6 +1,7 @@
 import {
   PLAYER, TICK_MS, SYNC_SECONDS, computeDamage, applyHealth, generateValidMap, moveCircle, hasLineOfSight,
   phaseAt, scalePhases, DEFAULT_PHASES, placeChests, addToInventory, itemValue, INTERACT_RANGE,
+  pushHistory, positionAt, clampRewind, type TimedPoint,
   type GridMap, type InputMessage, type MatchRecord, type PhaseConfig,
 } from '@shared/index';
 import { config } from './config';
@@ -18,7 +19,10 @@ interface Actor {
   kills: number; deaths: number; endedAt: number | null;
   inventory: string[];
   /** Pulsos recibidos entre ticks: un toque rápido nunca se pierde. */
-  pendingAttack: boolean; pendingUse: boolean;
+  /** Ataque pendiente con la dirección y el instante que el atacante veía. */
+  pendingAttack: { ax: number; ay: number; viewT?: number } | null; pendingUse: boolean;
+  /** Posiciones del último segundo, para retroceder el tiempo al revisar golpes. */
+  history: TimedPoint[];
 }
 
 export interface Chest { id: string; x: number; y: number; state: 'closed' | 'open' | 'empty'; items: string[] }
@@ -52,7 +56,7 @@ export class Match {
         hp: PLAYER.maxHp, shield: 0, alive: true, extracted: false,
         input: null, lastSeq: 0, cooldownUntil: 0, attackAt: 0, syncT: 0,
         kills: 0, deaths: 0, endedAt: null,
-        inventory: [], pendingAttack: false, pendingUse: false,
+        inventory: [], pendingAttack: null, pendingUse: false, history: [],
       });
     });
   }
@@ -68,7 +72,7 @@ export class Match {
     const a = this.actors.get(id);
     if (!a || msg.seq < a.lastSeq) return;
     a.input = msg;
-    if (msg.attack) a.pendingAttack = true;
+    if (msg.attack) a.pendingAttack = { ax: msg.ax, ay: msg.ay, viewT: msg.viewT };
     if (msg.use) a.pendingUse = true;
   }
 
@@ -114,7 +118,7 @@ export class Match {
         a.x = p.x; a.y = p.y;
         const al = Math.hypot(inp.ax, inp.ay);
         if (al > 0.1) { a.ax = inp.ax / al; a.ay = inp.ay / al; }
-        if (a.pendingAttack && now >= a.cooldownUntil) this.attack(a, now);
+        if (a.pendingAttack && now >= a.cooldownUntil) this.attack(a, now, a.pendingAttack);
         if (a.pendingUse) this.use(a);
         // Extracción: mantener interactuar junto a un portal abierto.
         const portal = portals.find((pt) => pt.open && Math.hypot(pt.x - a.x, pt.y - a.y) < PORTAL_RADIUS);
@@ -126,27 +130,38 @@ export class Match {
           }
         } else a.syncT = 0;
       }
-      a.pendingAttack = false; a.pendingUse = false;
+      a.pendingAttack = null; a.pendingUse = false;
       if (Number.isFinite(collapseR) && Math.hypot(a.x - lastPortal.x, a.y - lastPortal.y) > collapseR) {
         this.hurt(a, 8 * dt * 4, null);
       }
     }
 
+    for (const a of this.actors.values()) if (a.alive && !a.extracted) pushHistory(a.history, { t: now, x: a.x, y: a.y });
+
     if (ph.ended || [...this.actors.values()].every((a) => !a.alive || a.extracted)) return this.finish(now);
     this.broadcast(t, ph.phase, portals, collapseR);
   }
 
-  private attack(a: Actor, now: number) {
+  /**
+   * Golpe con compensación de lag: los objetivos se revisan en la posición que tenían
+   * cuando el atacante los vio (máximo 250 ms atrás), no en la actual.
+   */
+  private attack(a: Actor, now: number, cmd: { ax: number; ay: number; viewT?: number }) {
     a.cooldownUntil = now + PLAYER.attackCooldownMs;
     a.attackAt = now;
+    const al = Math.hypot(cmd.ax, cmd.ay);
+    const ax = al > 0.1 ? cmd.ax / al : a.ax, ay = al > 0.1 ? cmd.ay / al : a.ay;
+    const at = clampRewind(now, cmd.viewT);
     for (const b of this.actors.values()) {
       if (b === a || !b.alive || b.extracted) continue;
-      const dx = b.x - a.x, dy = b.y - a.y, d = Math.hypot(dx, dy);
-      if (d > PLAYER.attackRange || (dx * a.ax + dy * a.ay) / (d || 1) < PLAYER.attackArc) continue;
-      if (!hasLineOfSight(this.map, a, b)) continue;
+      const seen = positionAt(b.history, at) ?? b;
+      const dx = seen.x - a.x, dy = seen.y - a.y, d = Math.hypot(dx, dy);
+      if (d > PLAYER.attackRange || (dx * ax + dy * ay) / (d || 1) < PLAYER.attackArc) continue;
+      if (!hasLineOfSight(this.map, a, seen)) continue;
       const r = computeDamage({ base: BASE_DAMAGE, rarity: 'comun', targetShield: b.shield });
       b.shield = r.remainingShield;
       this.hurt(b, r.toHealth, a);
+      a.conn.send({ type: 'hit', target: b.conn.id, dmg: r.total, x: Math.round(seen.x), y: Math.round(seen.y), rewindMs: now - at });
     }
   }
 

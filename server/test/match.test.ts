@@ -13,7 +13,7 @@ function setup(n = 1) {
   return { match, sent, getRecord: () => record };
 }
 
-const input = (seq: number, extra: Partial<{ use: boolean; attack: boolean; interact: boolean; ax: number; ay: number }> = {}) =>
+const input = (seq: number, extra: Partial<{ use: boolean; attack: boolean; interact: boolean; ax: number; ay: number; viewT: number }> = {}) =>
   ({ type: 'input' as const, seq, mx: 0, my: 0, ax: 0, ay: 1, attack: false, interact: false, use: false, ...extra });
 
 /** Coloca al jugador junto al primer cofre. */
@@ -85,5 +85,51 @@ describe('Muerte y extracción', () => {
     const rec = getRecord();
     expect(rec.players[0].lootValue).toBe(itemValue(['orbe', 'esquirlas']));
     expect(rec.players[0].lootValue).toBe(ITEMS.orbe.value + ITEMS.esquirlas.value);
+  });
+});
+
+describe('Compensación de lag en los golpes', () => {
+  /** Simula que el objetivo estuvo frente al atacante y se movió fuera de alcance 120 ms después. */
+  function scenario() {
+    const ctx = setup(2);
+    const a = ctx.match.actor('p0')!, b = ctx.match.actor('p1')!;
+    const { x, y } = ctx.match.map.spawns[0]; // centro de una llegada: piso libre
+    a.x = x; a.y = y; b.hp = 100;
+    const now = Date.now();
+    b.history = [
+      { t: now - 400, x, y: y + 60 },
+      { t: now - 120, x, y: y + 60 },
+      { t: now - 100, x, y: y + 300 },
+      { t: now, x, y: y + 300 },
+    ];
+    b.x = x; b.y = y + 300; // posición actual: fuera de alcance
+    return { ...ctx, a, b, now };
+  }
+
+  it('acierta si el objetivo estaba en alcance en lo que vio el atacante', () => {
+    const { match, b, now, sent } = scenario();
+    match.handleInput('p0', input(1, { attack: true, ax: 0, ay: 1, viewT: now - 150 }));
+    match.tick(now);
+    expect(b.hp).toBeLessThan(100);
+    expect(sent.p0.some((m) => m.type === 'hit' && m.target === 'p1')).toBe(true);
+    match.stop();
+  });
+
+  it('sin compensación (instante actual) el mismo golpe falla', () => {
+    const { match, b, now } = scenario();
+    match.handleInput('p0', input(1, { attack: true, ax: 0, ay: 1 }));
+    match.tick(now);
+    expect(b.hp).toBe(100);
+    match.stop();
+  });
+
+  it('no retrocede más de 250 ms aunque el cliente lo pida', () => {
+    const { match, b, now } = scenario();
+    const { x, y } = match.map.spawns[0];
+    b.history = [{ t: now - 1000, x, y: y + 60 }, { t: now - 300, x, y: y + 300 }, { t: now, x, y: y + 300 }];
+    match.handleInput('p0', input(1, { attack: true, ax: 0, ay: 1, viewT: now - 900 }));
+    match.tick(now);
+    expect(b.hp).toBe(100);
+    match.stop();
   });
 });
