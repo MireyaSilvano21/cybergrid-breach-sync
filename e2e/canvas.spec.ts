@@ -33,8 +33,8 @@ test.describe('Móvil', () => {
     await expect(page.locator('#touch')).toBeVisible();
     await page.waitForTimeout(500);
     const before = await readPos(page);
-    const box = (await page.locator('#stick').boundingBox())!;
-    const cx = box.x + box.width / 2, cy = box.y + box.height / 2;
+    const box = (await page.locator('#stick-zone').boundingBox())!;
+    const cx = box.x + 100, cy = box.y + box.height - 100;
     await page.mouse.move(cx, cy);
     await page.mouse.down();
     await page.mouse.move(cx + 60, cy, { steps: 4 });

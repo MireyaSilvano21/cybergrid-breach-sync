@@ -1,5 +1,5 @@
 import {
-  TILE, PLAYER, INTERP_DELAY_MS, WALL, generateValidMap, moveCircle, sampleBuffer, createRng,
+  TILE, PLAYER, INTERP_DELAY_MS, WALL, ITEMS, INTERACT_RANGE, generateValidMap, moveCircle, sampleBuffer, createRng, itemValue,
   type GridMap, type TimedPosition,
 } from '@shared/index';
 import type { Net } from './net';
@@ -26,6 +26,11 @@ export class Game {
   private server = { x: 0, y: 0 };
   private remotes = new Map<string, Remote>();
   private portals: { x: number; y: number; open: boolean }[] = [];
+  private chests: { id: string; x: number; y: number; s: 'closed' | 'open' | 'empty' }[] = [];
+  private remains: { id: string; x: number; y: number; owner: string }[] = [];
+  private inv: string[] = [];
+  private toastTimer: number | undefined;
+  private static sprites: Record<string, HTMLImageElement> | null = null;
   private collapseR: number | null = null;
   private seq = 0;
   private lastSend = 0;
@@ -46,7 +51,14 @@ export class Game {
     this.me.x = this.server.x = this.cam.x = start.x;
     this.me.y = this.server.y = this.cam.y = start.y;
     const q = (id: string) => root.querySelector<HTMLElement>('#' + id)!;
-    this.el = { hpBar: q('hp-bar'), hpText: q('hp-text'), phase: q('phase'), timer: q('timer'), ping: q('ping'), fps: q('fps'), sync: q('sync'), syncBar: q('sync-bar'), state: q('player-state') };
+    this.el = { hpBar: q('hp-bar'), hpText: q('hp-text'), phase: q('phase'), timer: q('timer'), ping: q('ping'), fps: q('fps'), sync: q('sync'), syncBar: q('sync-bar'), state: q('player-state'), toast: q('toast'), inv: q('inventory'), invSlots: q('inv-slots'), invValue: q('inv-value') };
+    Game.loadSprites();
+    this.renderInventory([]);
+    const names = (ids: string[]) => ids.map((id) => ITEMS[id]?.name ?? id).join(', ');
+    this.offs.push(net.on('opened', (m) => this.toast(m.items.length ? `Contiene: ${names(m.items)}` : 'Está vacío')));
+    this.offs.push(net.on('looted', (m) => this.toast(`Obtuviste: ${names(m.items)}${m.left ? ' · no cupo todo' : ''}`)));
+    this.offs.push(net.on('notice', (m) => this.toast(m.message)));
+    this.offs.push(net.on('extracted', (m) => this.toast(`Escapaste con ${m.value} ◆`)));
     this.offs.push(net.on('snap', (m) => this.onSnap(m)));
     this.offs.push(net.on('latency', (m) => { this.el.ping.textContent = `${Math.round(m.ms)} ms`; }));
     this.resize();
@@ -54,7 +66,43 @@ export class Game {
     this.raf = requestAnimationFrame(this.loop);
   }
 
-  destroy() { cancelAnimationFrame(this.raf); removeEventListener('resize', this.resize); this.offs.forEach((o) => o()); }
+  destroy() { cancelAnimationFrame(this.raf); removeEventListener('resize', this.resize); this.offs.forEach((o) => o()); window.clearTimeout(this.toastTimer); this.el.toast.hidden = true; }
+
+  private static loadSprites() {
+    if (Game.sprites) return;
+    Game.sprites = {};
+    for (const k of ['cerrado', 'abierto', 'vacio']) {
+      const img = new Image();
+      img.src = `/assets/chests/forja_${k}.png`;
+      Game.sprites[k] = img;
+    }
+  }
+
+  private toast(text: string) {
+    const el = this.el.toast;
+    el.textContent = text; el.hidden = false;
+    window.clearTimeout(this.toastTimer);
+    this.toastTimer = window.setTimeout(() => { el.hidden = true; }, 2600);
+  }
+
+  private renderInventory(ids: string[]) {
+    this.inv = ids;
+    const used = ids.reduce((n, id) => n + (ITEMS[id]?.size ?? 1), 0);
+    const cells: HTMLElement[] = ids.map((id) => {
+      const d = document.createElement('div');
+      const it = ITEMS[id];
+      d.className = `slot item${it?.size === 2 ? ' wide' : ''}`;
+      d.style.background = it?.color ?? '#888';
+      d.title = it?.name ?? id;
+      return d;
+    });
+    for (let i = used; i < 10; i++) { const d = document.createElement('div'); d.className = 'slot'; cells.push(d); }
+    this.el.invSlots.replaceChildren(...cells);
+    const value = itemValue(ids);
+    this.el.invValue.textContent = String(value);
+    this.el.inv.dataset.count = String(ids.length);
+    this.el.inv.dataset.value = String(value);
+  }
 
   private resize = () => {
     const c = this.ctx.canvas;
@@ -69,6 +117,9 @@ export class Game {
     this.server = { x: m.you.x, y: m.you.y };
     Object.assign(this.me, { hp: m.you.hp, alive: m.you.alive, extracted: m.you.extracted, atk: m.you.atk });
     this.portals = m.portals; this.collapseR = m.collapseR;
+    this.chests = m.chests ?? []; this.remains = m.remains ?? [];
+    const inv: string[] = m.you.inv ?? [];
+    if (inv.join() !== this.inv.join()) this.renderInventory(inv);
     for (const o of m.others) {
       let r = this.remotes.get(o.id);
       if (!r) { r = { id: o.id, name: o.name, buf: [], hp: o.hp, ax: o.ax, ay: o.ay, atk: o.atk, seen: now }; this.remotes.set(o.id, r); }
@@ -121,14 +172,20 @@ export class Game {
     }
     this.me.ax = this.input.aimX; this.me.ay = this.input.aimY;
     const attack = this.input.consumeAttack();
-    if (t - this.lastSend > 33 || attack) {
+    const use = this.input.consumeUse();
+    if (t - this.lastSend > 33 || attack || use) {
       this.lastSend = t;
-      this.net.send({ type: 'input', seq: ++this.seq, mx: this.input.mx, my: this.input.my, ax: this.input.aimX, ay: this.input.aimY, attack, interact: this.input.interact });
+      this.net.send({ type: 'input', seq: ++this.seq, mx: this.input.mx, my: this.input.my, ax: this.input.aimX, ay: this.input.aimY, attack, interact: this.input.interact, use });
     }
     this.cam.x += (this.me.x - this.cam.x) * Math.min(1, dt * 6);
     this.cam.y += (this.me.y - 20 - this.cam.y) * Math.min(1, dt * 6);
     const st = this.el.state;
     st.dataset.x = String(Math.round(this.me.x)); st.dataset.y = String(Math.round(this.me.y)); st.dataset.hp = String(this.me.hp);
+    // Cofre disponible más cercano: lo usan las pruebas E2E para guiar al jugador.
+    let nc: { x: number; y: number; s: string } | null = null, nd = Infinity;
+    for (const c of this.chests) { if (c.s === 'empty') continue; const d = Math.hypot(c.x - this.me.x, c.y - this.me.y); if (d < nd) { nd = d; nc = c; } }
+    st.dataset.chestX = nc ? String(Math.round(nc.x)) : ''; st.dataset.chestY = nc ? String(Math.round(nc.y)) : '';
+    st.dataset.chestState = nc?.s ?? '';
   }
 
   private prerender(): HTMLCanvasElement {
@@ -168,11 +225,21 @@ export class Game {
     for (const mo of this.map.monoliths) { g.fillStyle = '#3d3551'; g.fillRect(mo.x - 14, mo.y - 70, 28, 70); g.strokeStyle = '#1d0c16'; g.lineWidth = 3; g.strokeRect(mo.x - 14, mo.y - 70, 28, 70); }
 
     const renderT = performance.now() - INTERP_DELAY_MS;
-    const actors: { x: number; y: number; name: string; hp: number; ax: number; ay: number; atk: boolean; me: boolean }[] = [];
-    for (const r of this.remotes.values()) { const p = sampleBuffer(r.buf, renderT); if (p) actors.push({ ...p, name: r.name, hp: r.hp, ax: r.ax, ay: r.ay, atk: r.atk, me: false }); }
-    if (this.me.alive && !this.me.extracted) actors.push({ x: this.me.x, y: this.me.y, name: '', hp: this.me.hp, ax: this.me.ax, ay: this.me.ay, atk: this.me.atk, me: true });
-    actors.sort((a, b) => a.y - b.y);
-    for (const a of actors) this.drawActor(a);
+    // Todo lo que tiene altura se dibuja ordenado por su coordenada Y (profundidad).
+    const list: { y: number; draw: () => void }[] = [];
+    for (const r of this.remotes.values()) {
+      const p = sampleBuffer(r.buf, renderT);
+      if (p) list.push({ y: p.y, draw: () => this.drawActor({ ...p, name: r.name, hp: r.hp, ax: r.ax, ay: r.ay, atk: r.atk, me: false }) });
+    }
+    if (this.me.alive && !this.me.extracted) {
+      const me = this.me;
+      list.push({ y: me.y, draw: () => this.drawActor({ x: me.x, y: me.y, name: '', hp: me.hp, ax: me.ax, ay: me.ay, atk: me.atk, me: true }) });
+    }
+    for (const c of this.chests) list.push({ y: c.y, draw: () => this.drawChest(c) });
+    for (const r of this.remains) list.push({ y: r.y, draw: () => this.drawRemains(r.x, r.y) });
+    list.sort((a, b) => a.y - b.y);
+    for (const o of list) o.draw();
+    this.drawPrompt(t);
 
     // Oscuridad con la visión del jugador y la luz de los portales.
     g.setTransform(1, 0, 0, 1, 0, 0);
@@ -185,6 +252,50 @@ export class Game {
       const lp = this.portals[1];
       if (lp) { g.strokeStyle = 'rgba(255,60,120,.6)'; g.lineWidth = 8; g.beginPath(); g.arc(lp.x, lp.y, this.collapseR, 0, Math.PI * 2); g.stroke(); }
     }
+  }
+
+  private drawChest(c: { x: number; y: number; s: 'closed' | 'open' | 'empty' }) {
+    const g = this.ctx;
+    const img = Game.sprites?.[c.s === 'closed' ? 'cerrado' : c.s === 'open' ? 'abierto' : 'vacio'];
+    g.fillStyle = 'rgba(10,4,12,.45)'; g.beginPath(); g.ellipse(c.x, c.y + 4, 34, 10, 0, 0, Math.PI * 2); g.fill();
+    if (img?.complete && img.naturalWidth) {
+      const w = 88, h = (img.naturalHeight / img.naturalWidth) * w;
+      g.drawImage(img, c.x - w / 2, c.y + 10 - h, w, h);
+    } else {
+      g.fillStyle = '#6b3a2c'; g.strokeStyle = '#1d0c16'; g.lineWidth = 4;
+      g.beginPath(); g.roundRect(c.x - 36, c.y - 50, 72, 56, 8); g.fill(); g.stroke();
+    }
+  }
+
+  private drawRemains(x: number, y: number) {
+    const g = this.ctx;
+    g.fillStyle = 'rgba(10,4,12,.45)'; g.beginPath(); g.ellipse(x, y + 4, 20, 7, 0, 0, Math.PI * 2); g.fill();
+    g.fillStyle = '#4a3550'; g.strokeStyle = '#1d0c16'; g.lineWidth = 4;
+    g.beginPath(); g.moveTo(x - 18, y); g.quadraticCurveTo(x - 22, y - 26, x - 6, y - 30); g.lineTo(x + 6, y - 30);
+    g.quadraticCurveTo(x + 22, y - 26, x + 18, y); g.closePath(); g.fill(); g.stroke();
+    g.strokeStyle = '#c9a36a'; g.lineWidth = 3; g.beginPath(); g.moveTo(x - 8, y - 30); g.lineTo(x + 8, y - 34); g.stroke();
+    g.fillStyle = '#f2c14e'; g.beginPath(); g.arc(x + 4, y - 14, 3, 0, Math.PI * 2); g.fill();
+  }
+
+  /** Indicación junto al cofre o los Restos más cercanos dentro del alcance. */
+  private drawPrompt(t: number) {
+    if (!this.me.alive || this.me.extracted) return;
+    let best: { x: number; y: number; text: string; top: number } | null = null, bd = INTERACT_RANGE;
+    for (const c of this.chests) {
+      if (c.s === 'empty') continue;
+      const d = Math.hypot(c.x - this.me.x, c.y - this.me.y);
+      if (d <= bd) { bd = d; best = { x: c.x, y: c.y, top: 96, text: c.s === 'closed' ? 'abrir cofre' : 'tomar botín' }; }
+    }
+    for (const r of this.remains) {
+      const d = Math.hypot(r.x - this.me.x, r.y - this.me.y);
+      if (d <= bd) { bd = d; best = { x: r.x, y: r.y, top: 50, text: `saquear a ${r.owner}` }; }
+    }
+    if (!best) return;
+    const g = this.ctx, label = `${this.input.touch ? 'Usar' : 'F'} · ${best.text}`;
+    g.font = '500 15px "Alegreya Sans", sans-serif'; g.textAlign = 'center';
+    const w = g.measureText(label).width + 20, y = best.y - best.top - 8 + Math.sin(t / 250) * 2;
+    g.fillStyle = 'rgba(20,10,22,.9)'; g.beginPath(); g.roundRect(best.x - w / 2, y - 18, w, 26, 6); g.fill();
+    g.fillStyle = '#ffc08a'; g.fillText(label, best.x, y);
   }
 
   private drawActor(a: { x: number; y: number; name: string; hp: number; ax: number; ay: number; atk: boolean; me: boolean }) {

@@ -4,6 +4,13 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
   <title>CyberGrid: Breach & Sync</title>
+  <meta name="theme-color" content="#0b0610" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <link rel="manifest" href="/manifest.webmanifest" />
+  <link rel="icon" href="/icon-192.png" />
+  <link rel="apple-touch-icon" href="/icon-192.png" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Grenze+Gotisch:wght@600;700&family=Alegreya+Sans:wght@400;500;700&display=swap" />
 </head>
@@ -68,11 +75,18 @@
       <span id="ping" class="mono">— ms</span>
       <span id="fps" class="mono"></span>
     </div>
+    <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+    <div id="inventory" class="inv" data-count="0" data-value="0" aria-label="Mochila">
+      <div id="inv-slots" class="slots"></div>
+      <span id="inv-value" class="inv-value">0</span>
+    </div>
     <div id="sync" class="sync" hidden><div id="sync-bar"></div><span>Sincronizando con el portal…</span></div>
-    <p id="hint" class="hint">WASD mover · clic atacar · mantener F junto a un portal abierto para escapar</p>
+    <p id="hint" class="hint">WASD mover · clic atacar · F abrir cofres y tomar botín · mantener F en un portal abierto para escapar</p>
     <div id="player-state" hidden data-x="0" data-y="0" data-hp="100"></div>
     <div id="touch" class="touch" hidden>
+      <div id="stick-zone" class="stick-zone" aria-hidden="true"></div>
       <div id="stick" class="stick"><div id="knob" class="knob"></div></div>
+      <button id="fs-btn" class="fs-btn" type="button">Pantalla completa</button>
       <div class="tbtns">
         <button id="t-interact" class="tbtn use" aria-label="Interactuar">Usar</button>
         <button id="t-attack" class="tbtn atk" aria-label="Atacar">Atacar</button>

@@ -2,14 +2,19 @@
 export class Input {
   mx = 0; my = 0;
   aimX = 0; aimY = 1;
-  attack = false; interact = false;
+  attack = false; interact = false; use = false;
   touch = false;
   private keys = new Set<string>();
   private mouse: { x: number; y: number } | null = null;
   private stick = { x: 0, y: 0 };
 
   constructor(private root: HTMLElement) {
-    addEventListener('keydown', (e) => { this.keys.add(e.key.toLowerCase()); if (e.key === ' ') this.attack = true; });
+    addEventListener('keydown', (e) => {
+      const k = e.key.toLowerCase();
+      this.keys.add(k);
+      if (e.key === ' ') this.attack = true;
+      if ((k === 'f' || k === 'e') && !e.repeat) this.use = true;
+    });
     addEventListener('keyup', (e) => this.keys.delete(e.key.toLowerCase()));
     addEventListener('blur', () => this.keys.clear());
     const canvas = root.querySelector('canvas')!;
@@ -28,26 +33,67 @@ export class Input {
   }
 
   private bindTouch() {
+    const zone = this.root.querySelector<HTMLElement>('#stick-zone')!;
     const stick = this.root.querySelector<HTMLElement>('#stick')!, knob = this.root.querySelector<HTMLElement>('#knob')!;
-    let id: number | null = null;
-    const move = (e: PointerEvent) => {
+    const R = 48;
+    let id: number | null = null, cx = 0, cy = 0;
+    // Joystick flotante: aparece donde el pulgar toca dentro de la mitad izquierda.
+    const place = (x: number, y: number) => {
       const b = stick.getBoundingClientRect();
-      let dx = e.clientX - (b.left + b.width / 2), dy = e.clientY - (b.top + b.height / 2);
-      const d = Math.hypot(dx, dy), m = 48;
-      if (d > m) { dx = (dx / d) * m; dy = (dy / d) * m; }
-      this.stick = { x: dx / m, y: dy / m };
+      const half = b.width / 2;
+      cx = Math.max(half + 8, Math.min(innerWidth * 0.48 - half, x));
+      cy = Math.max(innerHeight * 0.3 + half, Math.min(innerHeight - half - 8, y));
+      stick.style.left = `${cx - half}px`; stick.style.top = `${cy - half}px`; stick.style.bottom = 'auto';
+    };
+    const move = (x: number, y: number) => {
+      let dx = x - cx, dy = y - cy;
+      const d = Math.hypot(dx, dy);
+      if (d > R) { dx = (dx / d) * R; dy = (dy / d) * R; }
+      const dead = 0.12, mag = Math.min(1, d / R);
+      this.stick = mag < dead ? { x: 0, y: 0 } : { x: dx / R, y: dy / R };
       knob.style.transform = `translate(${dx}px,${dy}px)`;
     };
-    stick.addEventListener('pointerdown', (e) => { id = e.pointerId; stick.setPointerCapture(id); move(e); });
-    stick.addEventListener('pointermove', (e) => { if (e.pointerId === id) move(e); });
-    const end = (e: PointerEvent) => { if (e.pointerId === id) { id = null; this.stick = { x: 0, y: 0 }; knob.style.transform = ''; } };
-    stick.addEventListener('pointerup', end); stick.addEventListener('pointercancel', end);
+    const reset = () => {
+      id = null; this.stick = { x: 0, y: 0 };
+      knob.style.transform = ''; stick.classList.remove('active');
+      stick.style.left = ''; stick.style.top = ''; stick.style.bottom = '';
+    };
+    zone.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      if (id !== null) return;
+      id = e.pointerId; zone.setPointerCapture(id);
+      stick.classList.add('active'); place(e.clientX, e.clientY); move(e.clientX, e.clientY);
+      this.requestFullscreen();
+    });
+    zone.addEventListener('pointermove', (e) => { if (e.pointerId === id) { e.preventDefault(); move(e.clientX, e.clientY); } });
+    zone.addEventListener('pointerup', (e) => { if (e.pointerId === id) reset(); });
+    zone.addEventListener('pointercancel', (e) => { if (e.pointerId === id) reset(); });
+    zone.addEventListener('contextmenu', (e) => e.preventDefault());
+
     const atk = this.root.querySelector<HTMLElement>('#t-attack')!, use = this.root.querySelector<HTMLElement>('#t-interact')!;
-    atk.addEventListener('pointerdown', (e) => { e.preventDefault(); this.attack = true; });
-    use.addEventListener('pointerdown', (e) => { e.preventDefault(); this.useHeld = true; });
+    atk.addEventListener('pointerdown', (e) => { e.preventDefault(); this.attack = true; this.requestFullscreen(); });
+    use.addEventListener('pointerdown', (e) => { e.preventDefault(); this.useHeld = true; this.use = true; });
     use.addEventListener('pointerup', () => { this.useHeld = false; });
     use.addEventListener('pointercancel', () => { this.useHeld = false; });
+    for (const b of [atk, use]) b.addEventListener('contextmenu', (e) => e.preventDefault());
+
+    const fs = this.root.querySelector<HTMLButtonElement>('#fs-btn')!;
+    const sync = () => { fs.hidden = !document.fullscreenEnabled || !!document.fullscreenElement; };
+    fs.addEventListener('click', () => this.requestFullscreen(true));
+    document.addEventListener('fullscreenchange', sync);
+    sync();
   }
+
+  private fsTried = false;
+  /** Pantalla completa en horizontal. El navegador solo lo permite tras un toque del usuario. */
+  requestFullscreen(force = false) {
+    if ((!force && this.fsTried) || document.fullscreenElement || !document.fullscreenEnabled) return;
+    this.fsTried = true;
+    document.documentElement.requestFullscreen({ navigationUI: 'hide' })
+      .then(() => (screen.orientation as ScreenOrientation & { lock?: (o: string) => Promise<void> }).lock?.('landscape'))
+      .catch(() => { /* el navegador puede negarlo; el juego funciona igual */ });
+  }
+
   private useHeld = false;
 
   /** Actualiza los valores de este frame. playerScreen es la posición del jugador en pantalla. */
@@ -69,4 +115,5 @@ export class Input {
   }
 
   consumeAttack() { const a = this.attack; this.attack = false; return a; }
+  consumeUse() { const u = this.use; this.use = false; return u; }
 }

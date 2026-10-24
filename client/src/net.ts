@@ -6,6 +6,7 @@ export class Net {
   private handlers = new Map<string, Set<Handler>>();
   private pingTimer: number | undefined;
   latency = 0;
+  private samples: number[] = [];
 
   connect(token: string): Promise<void> {
     return new Promise((resolve, reject) => {
@@ -21,7 +22,13 @@ export class Net {
       ws.onclose = () => { window.clearInterval(this.pingTimer); this.emit('close', {}); };
       ws.onmessage = (ev) => {
         const msg = JSON.parse(ev.data);
-        if (msg.type === 'pong') { this.latency = performance.now() - msg.t; this.emit('latency', { ms: this.latency }); }
+        if (msg.type === 'pong') {
+          // Promedio de las últimas 5 mediciones para que el valor no salte.
+          this.samples.push(performance.now() - msg.t);
+          if (this.samples.length > 5) this.samples.shift();
+          this.latency = this.samples.reduce((a, b) => a + b, 0) / this.samples.length;
+          this.emit('latency', { ms: this.latency });
+        }
         this.emit(msg.type, msg);
       };
     });
