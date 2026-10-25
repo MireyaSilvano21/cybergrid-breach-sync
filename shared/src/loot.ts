@@ -24,6 +24,16 @@ const COMMON_TABLE: [string, number][] = [
 export const INVENTORY_SLOTS = 10;
 export const INTERACT_RANGE = 80;
 
+/** Consumibles: Tónico de Sutura cura con el tiempo (se corta si te golpean); Sal de Guarda limpia y protege. */
+export const CONSUMABLES = {
+  tonico: { healPerS: 12, ms: 3000 },
+  sal: { wardMs: 3000 },
+} as const;
+
+/** Orden para tomar todo: primero lo que más vale por casilla. */
+export const byValueDensity = (ids: string[]) =>
+  [...ids].sort((x, y) => (ITEMS[y]?.value ?? 0) / (ITEMS[y]?.size ?? 1) - (ITEMS[x]?.value ?? 0) / (ITEMS[x]?.size ?? 1));
+
 export const itemValue = (ids: string[]) => ids.reduce((sum, id) => sum + (ITEMS[id]?.value ?? 0), 0);
 export const slotsUsed = (ids: string[]) => ids.reduce((sum, id) => sum + (ITEMS[id]?.size ?? 1), 0);
 

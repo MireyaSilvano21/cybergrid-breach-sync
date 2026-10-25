@@ -30,7 +30,10 @@ describe('Base de datos en segundo plano', () => {
     const b = boot(db); await b.p.start();
     expect(b.users.get('mireya')?.hash).toBe('h');
     expect(b.p.profile('MIREYA')?.build.school).toBe('seleth');
-    expect(b.tele.summary()).toEqual({ ...a.tele.summary(), generatedAt: b.tele.summary().generatedAt });
+    // Se compara todo menos la hora en que se generó el resumen.
+    const { generatedAt: _a, ...antes } = a.tele.summary();
+    const { generatedAt: _b, ...despues } = b.tele.summary();
+    expect(despues).toEqual(antes);
   });
 
   it('una base lenta no frena nada: guardar es inmediato y la telemetría sigue en memoria', async () => {

@@ -171,7 +171,19 @@
       </div>
     </div>
     <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
-    <div id="inventory" class="inv" data-count="0" data-value="0" aria-label="Mochila">
+    <!-- Botín cercano: se toca un objeto para tomarlo o "Tomar todo". -->
+    <div id="loot-strip" class="loot-strip" hidden aria-label="Botín cercano">
+      <span class="loot-title">Botín</span><div id="loot-items" class="loot-items"></div>
+      <button type="button" id="loot-all" class="loot-all">Tomar todo</button>
+    </div>
+    <!-- Mochila abierta: objetos, detalle y acciones (usar o soltar). El juego sigue corriendo. -->
+    <div id="bag" class="bag" hidden role="dialog" aria-label="Mochila">
+      <div class="bag-head"><b>Mochila</b><span id="bag-info" class="bag-info"></span><button type="button" id="bag-close" class="bag-close" aria-label="Cerrar mochila">✕</button></div>
+      <div id="bag-grid" class="bag-grid"></div>
+      <div id="bag-detail" class="bag-detail"><span class="bag-hint">Toca un objeto para ver qué hace.</span></div>
+    </div>
+    <button type="button" id="snd-toggle" class="snd-toggle" role="switch" aria-checked="true" aria-label="Sonido">♪</button>
+    <div id="inventory" class="inv" data-count="0" data-value="0" aria-label="Mochila (abrir)" role="button" tabindex="0">
       <span class="ico ico-mochila" aria-hidden="true"></span>
       <div id="inv-slots" class="slots"></div>
       <span id="inv-value" class="inv-value">0</span>

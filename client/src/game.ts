@@ -11,6 +11,8 @@ import { Input, type AimSlot, type Drag } from './input';
 import { Sprites, isDeepWall, drawDiagWall, drawThinCracks, drawCover, drawBars, drawGate, drawBrazier, buildFloorChunk, buildWall, wallKey, buildDecor, drawGrass, glowP, CHUNK, WALL_RISE, INK, type FloorChunk, type Decor } from './art';
 import { drawCharacter } from './rig';
 import { CombatVfx } from './vfx';
+import { sound } from './audio';
+import { itemIcon } from './items-art';
 import { drawErrante, drawSusurrante, drawColoso, drawRuneTelegraph, drawZoneTelegraph, shadow as monShadow, PveFx, MONSTER_SCALE, SUSURRANTE_MOUTH, type ErrantePose, type SusurrantePose, type ColosoPose } from './desnombrados';
 
 interface Remote { id: string; name: string; buf: TimedPosition[]; hp: number; ax: number; ay: number; atk: boolean; seen: number; lx: number; ly: number; walk: number; flash: number; foco?: string; slow?: boolean; root?: boolean; invis?: boolean; rev?: boolean; mark?: boolean; team?: number; labelDy?: number; swingAt: number; shotAt: number; castAt: number; mv: number; drawT: number }
@@ -191,6 +193,13 @@ export class Game {
   private gateOpen = new Map<number, number>();
   /** Posiciones de los demás en el cuadro anterior (para abrir puertas). */
   private nearPos: { x: number; y: number }[] = [];
+  /** Mochila: acción pendiente para el servidor, botín cercano que se ve y objeto elegido en el panel. */
+  private pendingInv: { a: 'take' | 'all' | 'drop' | 'use'; i: number; from?: string } | null = null;
+  private loot: { id: string; items: string[] } | null = null;
+  private bagSel = -1;
+  private lastPhase = '';
+  private wasSyncing = false;
+  private wasMarked = false;
   /** Fases de la partida (segundos) y tiempo actual, para avisar cuándo despiertan los monolitos. */
   private phaseTimes: Record<string, number> = {};
   private matchTime = 0;
@@ -233,17 +242,22 @@ export class Game {
     Game.loadSprites();
     this.renderInventory([]);
     const names = (ids: string[]) => ids.map((id) => ITEMS[id]?.name ?? id).join(', ');
-    this.offs.push(net.on('opened', (m) => this.toast(m.items.length ? `Contiene: ${names(m.items)}` : 'Está vacío')));
-    this.offs.push(net.on('looted', (m) => this.toast(`Obtuviste: ${names(m.items)}${m.left ? ' · no cupo todo' : ''}`)));
+    this.offs.push(net.on('opened', (m) => { sound.play('chest'); this.toast(m.items.length ? `Contiene: ${names(m.items)}` : 'Está vacío'); }));
+    this.offs.push(net.on('looted', (m) => { sound.play('pickup'); this.toast(`Obtuviste: ${names(m.items)}${m.left ? ' · no cupo todo' : ''}`); }));
+    this.offs.push(net.on('dropped', (m) => { sound.play('drop'); this.toast(`Soltaste: ${names([m.item])}`); }));
+    this.offs.push(net.on('used', (m) => { sound.play(m.item === 'tonico' ? 'tonic' : 'ward'); this.toast(m.item === 'tonico' ? 'Tónico: te curas poco a poco (un golpe lo corta)' : 'Sal de Guarda: libre de ataduras por 3 s'); }));
+    this.offs.push(net.on('died', () => sound.play('death')));
     this.offs.push(net.on('notice', (m) => this.toast(m.message)));
+    this.offs.push(net.on('name', (m) => sound.play(m.result === 'errado' ? 'name_bad' : 'name_ok')));
     this.offs.push(net.on('name', (m) => this.toast(m.result === 'perfecto' ? '¡Nombre perfecto! El monolito se fortalece' : m.result === 'correcto' ? 'Nombre correcto: el ritual sigue' : 'Nombre errado: el monolito te delata')));
-    this.offs.push(net.on('extracted', (m) => this.toast(`Escapaste con ${m.value} ◆`)));
+    this.offs.push(net.on('extracted', (m) => { sound.play('extract'); this.toast(`Escapaste con ${m.value} ◆`); }));
     // Curaciones: número verde sobre quien se cura.
     this.offs.push(net.on('heal', (m) => { this.floaters.push({ x: m.x, y: m.y, text: `+${m.amt}`, t0: performance.now(), heal: true }); }));
     this.offs.push(net.on('hit', (m) => {
       const now = performance.now();
       this.floaters.push({ x: m.x, y: m.y, text: `-${m.dmg}`, t0: now, id: m.target });
       this.vfx.hit(m.x, m.y, m.x - this.me.x, m.y - this.me.y, FOCOS[this.build.focos[this.foco]]?.rgb ?? '255,220,150', m.dmg);
+      sound.play('hit', { x: m.x, y: m.y });
       const r = this.remotes.get(m.target); if (r) r.flash = now;
       const a0 = Math.atan2(m.y - this.me.y, m.x - this.me.x);
       for (let i = 0; i < 14; i++) { const a = a0 + (Math.random() - 0.5) * 1.8, v = 180 + Math.random() * 300; this.sparks.push({ x: m.x, y: m.y - 30, vx: Math.cos(a) * v, vy: Math.sin(a) * v, l: 1 }); }
@@ -268,10 +282,36 @@ export class Game {
     this.offs.push(net.on('latency', (m) => { this.el.ping.textContent = `${Math.round(m.ms)} ms`; }));
     this.resize();
     addEventListener('resize', this.resize);
+    this.wireBag();
+    sound.startAmbience();
     this.raf = requestAnimationFrame(this.loop);
   }
 
-  destroy() { this.root.querySelector('#aliados')?.replaceChildren(); cancelAnimationFrame(this.raf); removeEventListener('resize', this.resize); this.offs.forEach((o) => o()); window.clearTimeout(this.toastTimer); this.el.toast.hidden = true; }
+  /** Controles de la mochila, del botín cercano y del sonido (ratón, toque y teclado). */
+  private wireBag() {
+    const on = <K extends keyof HTMLElementEventMap>(el: EventTarget, ev: K | string, fn: (e: Event) => void) => { el.addEventListener(ev, fn); this.offs.push(() => el.removeEventListener(ev, fn)); };
+    const q = (id: string) => this.root.querySelector<HTMLElement>(`#${id}`)!;
+    // Que tocar la mochila o la tira de botín no mueva el joystick ni dispare.
+    for (const id of ['inventory', 'bag', 'loot-strip', 'snd-toggle']) on(q(id), 'pointerdown', (e) => e.stopPropagation());
+    on(q('inventory'), 'click', () => this.toggleBag());
+    on(q('bag-close'), 'click', () => this.toggleBag(false));
+    on(q('loot-all'), 'click', () => { this.pendingInv = { a: 'all', i: 0 }; });
+    const snd = q('snd-toggle');
+    const paint = () => snd.setAttribute('aria-checked', String(!sound.muted));
+    paint();
+    on(snd, 'click', () => { sound.unlock(); sound.setMuted(!sound.muted); paint(); if (!sound.muted) sound.startAmbience(); });
+    on(window, 'keydown', (ev) => {
+      const e = ev as KeyboardEvent;
+      if (e.repeat || (e.target as HTMLElement | null)?.tagName === 'INPUT') return;
+      const k = e.key.toLowerCase();
+      if (k === 'tab' || k === 'i') { e.preventDefault(); this.toggleBag(); }
+      else if (k === 'escape' && !this.bagEl().bag.hidden) this.toggleBag(false);
+      else if (k === 'c') this.quickUse();
+      else if (k === 'm') { sound.setMuted(!sound.muted); paint(); }
+    });
+  }
+
+  destroy() { sound.stopAmbience(); this.root.querySelector('#aliados')?.replaceChildren(); cancelAnimationFrame(this.raf); removeEventListener('resize', this.resize); this.offs.forEach((o) => o()); window.clearTimeout(this.toastTimer); this.el.toast.hidden = true; }
 
   private static loadSprites() {
     if (Game.art) return;
@@ -296,7 +336,7 @@ export class Game {
       const d = document.createElement('div');
       const it = ITEMS[id];
       d.className = `slot item${it?.size === 2 ? ' wide' : ''}`;
-      d.style.background = it?.color ?? '#888';
+      d.style.backgroundImage = `url(${itemIcon(id)})`;
       d.title = it?.name ?? id;
       return d;
     });
@@ -306,6 +346,74 @@ export class Game {
     this.el.invValue.textContent = String(value);
     this.el.inv.dataset.count = String(ids.length);
     this.el.inv.dataset.value = String(value);
+    this.renderBag();
+  }
+
+  // ------------------------------------------------------------------------ mochila
+
+  private bagEl() {
+    const q = <T extends HTMLElement>(id: string) => this.root.querySelector<T>(`#${id}`)!;
+    return { bag: q('bag'), grid: q('bag-grid'), info: q('bag-info'), detail: q('bag-detail'), strip: q('loot-strip'), items: q('loot-items') };
+  }
+
+  /** Abre o cierra la mochila (el juego sigue: en una extracción no hay pausa). */
+  private toggleBag(open?: boolean) {
+    const b = this.bagEl().bag, next = open ?? b.hidden;
+    b.hidden = !next;
+    if (next) { this.bagSel = -1; this.renderBag(); }
+    sound.play('click');
+  }
+
+  private renderBag() {
+    const e = this.bagEl();
+    if (e.bag.hidden) return;
+    const used = this.inv.reduce((n, id) => n + (ITEMS[id]?.size ?? 1), 0);
+    e.info.textContent = `${used}/10 casillas · ${itemValue(this.inv)} ◆`;
+    const cells: HTMLElement[] = this.inv.map((id, i) => {
+      const it = ITEMS[id], b = document.createElement('button');
+      b.type = 'button'; b.className = it?.size === 2 ? 'wide' : '';
+      b.style.backgroundImage = `url(${itemIcon(id)})`;
+      b.setAttribute('aria-label', it?.name ?? id); b.setAttribute('aria-pressed', String(i === this.bagSel));
+      b.addEventListener('click', () => { this.bagSel = i === this.bagSel ? -1 : i; sound.play('click'); this.renderBag(); });
+      return b;
+    });
+    for (let i = used; i < 10; i++) { const d = document.createElement('span'); d.className = 'vacio'; cells.push(d); }
+    e.grid.replaceChildren(...cells);
+    const id = this.inv[this.bagSel], it = id ? ITEMS[id] : undefined;
+    if (!it) { e.detail.innerHTML = '<span class="bag-hint">Toca un objeto para ver qué hace.</span>'; return; }
+    const desc = id === 'tonico' ? 'Cura 36 de vida en 3 s; un golpe lo corta.' : id === 'sal' ? 'Quita ralentización e inmovilización y te protege 3 s.' : it.kind === 'moneda' ? 'Moneda de la Grid.' : 'Reliquia: vale más si escapas con ella.';
+    e.detail.innerHTML = `<span class="nombre">${it.name} · ${it.value} ◆</span><span class="desc">${desc}</span><span class="acciones"></span>`;
+    const acts = e.detail.querySelector('.acciones')!, sel = this.bagSel;
+    if (it.kind === 'consumible') { const u = document.createElement('button'); u.type = 'button'; u.textContent = 'Usar'; u.addEventListener('click', () => { this.pendingInv = { a: 'use', i: sel }; this.bagSel = -1; }); acts.append(u); }
+    const d = document.createElement('button'); d.type = 'button'; d.className = 'soltar'; d.textContent = 'Soltar';
+    d.addEventListener('click', () => { this.pendingInv = { a: 'drop', i: sel }; this.bagSel = -1; });
+    acts.append(d);
+  }
+
+  /** Botín cercano (cofre abierto o restos): se muestra en una tira para tomar objeto por objeto. */
+  private setLoot(l: { id: string; items: string[] } | null) {
+    const key = l ? `${l.id}:${l.items.join()}` : '', prev = this.loot ? `${this.loot.id}:${this.loot.items.join()}` : '';
+    this.loot = l;
+    if (key === prev) return;
+    const e = this.bagEl();
+    e.strip.hidden = !l || !l.items.length;
+    if (!l) return;
+    const free = 10 - this.inv.reduce((n, id) => n + (ITEMS[id]?.size ?? 1), 0);
+    e.items.replaceChildren(...l.items.map((id, i) => {
+      const it = ITEMS[id], b = document.createElement('button');
+      b.type = 'button'; b.style.backgroundImage = `url(${itemIcon(id)})`;
+      b.title = `${it?.name ?? id} · ${it?.value ?? 0} ◆`; b.setAttribute('aria-label', b.title);
+      b.dataset.fits = String((it?.size ?? 1) <= free);
+      b.addEventListener('click', () => { this.pendingInv = { a: 'take', i, from: l.id }; });
+      return b;
+    }));
+  }
+
+  /** Usa el primer Tónico (o Sal) de la mochila: atajo de teclado. */
+  private quickUse() {
+    const i = this.inv.indexOf('tonico') >= 0 ? this.inv.indexOf('tonico') : this.inv.indexOf('sal');
+    if (i >= 0) this.pendingInv = { a: 'use', i };
+    else this.toast('No llevas Tónico ni Sal de Guarda');
   }
 
   private resize = () => {
@@ -345,6 +453,7 @@ export class Game {
     if (this.pendingFire) msg.fire = this.pendingFire;
     if (this.pendingCast) msg.cast = this.pendingCast;
     if (this.pendingName !== null) { msg.name = this.pendingName; msg.use = false; this.pendingName = null; this.nameTest = null; }
+    if (this.pendingInv) { msg.inv = this.pendingInv; this.pendingInv = null; }
     this.pendingFire = null; this.pendingCast = null; this.pendingSwap = false;
     this.net.send(msg);
   }
@@ -383,7 +492,7 @@ export class Game {
     this.snapTimes.push({ t: now, st: m.t });
     if (this.snapTimes.length > 40) this.snapTimes.shift();
     this.reconcile(m.you);
-    if (m.you.hp < this.me.hp && m.you.alive) { this.hurtAt = now; this.shake = Math.max(this.shake, 10); }
+    if (m.you.hp < this.me.hp && m.you.alive) { this.hurtAt = now; this.shake = Math.max(this.shake, 10); sound.play('hurt', undefined, 1, 120); }
     if (this.me.alive && !m.you.alive) this.deadAt = now;
     Object.assign(this.me, { hp: m.you.hp, alive: m.you.alive, extracted: m.you.extracted });
     this.portals = m.portals; this.collapseR = m.collapseR; this.res = m.res ?? null;
@@ -392,7 +501,13 @@ export class Game {
     for (const v of m.vaults ?? []) if (!this.openedVaults.has(v)) { openVault(this.map, v); this.openedVaults.add(v); }
     this.map.sealsOpen.heart = m.heart === 'abierta';
     this.rituals = m.rit ?? [];
+    if (m.phase !== this.lastPhase) {
+      // Cambio de fase: campana; con las Llamadas, además el zumbido del portal que se abre.
+      if (this.lastPhase) { sound.play('phase'); if (m.phase === 'primera-llamada' || m.phase === 'segunda-llamada') sound.play('portal'); }
+      this.lastPhase = m.phase;
+    }
     this.phaseId = m.phase;
+    this.setLoot(m.you.loot ?? null);
     this.matchTime = m.time ?? this.matchTime;
     this.syncMonsters(m.mons ?? [], now);
     this.nameTest = m.you.nt ? { el: m.you.nt.el, z: m.you.nt.z, at: now } : null;
@@ -417,6 +532,11 @@ export class Game {
     const s = m.timeLeft; setText(this.el.timer, `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`);
     // La misma barra sirve para sincronizar con el portal y para despertar un monolito.
     const rt: number = m.you.rt ?? 0, syncing = m.you.sync > 0 || rt > 0;
+    if (syncing && !this.wasSyncing) sound.play('sync');
+    this.wasSyncing = syncing;
+    const marked = !!m.res?.m;
+    if (marked && !this.wasMarked) sound.play('alarm');
+    this.wasMarked = marked;
     if (this.el.sync.hidden === syncing) this.el.sync.hidden = !syncing;
     if (syncing) {
       setStyle(this.el.syncBar, 'width', `${Math.round(Math.min(100, rt > 0 ? rt * 100 : (m.you.sync / m.you.syncNeed) * 100))}%`);
@@ -454,14 +574,15 @@ export class Game {
     switch (m.kind) {
       case 'golpe': {
         const r = this.mons.get(m.id); if (r) r.strikeAt = performance.now();
+        sound.play(m.mk === 'errante' ? 'm_slash' : m.mk === 'susurrante' ? 'm_lament' : 'm_slam', { x: m.x, y: m.y });
         if (m.mk === 'errante') this.pve.slash(m.x2, m.y2 - 30, m.x2 - m.x);
         else if (m.mk === 'susurrante') this.pve.lament(m.x, m.y + (SUSURRANTE_MOUTH + 8) * MONSTER_SCALE.susurrante, m.x2, m.y2, STRIKE_DELAY_MS.susurrante);
         else this.pve.impact(m.x2, m.y2, MONSTERS.coloso.area);
         if (!near) this.pve.shake = 0;
         return true;
       }
-      case 'disuelve': this.pve.dissolve(m.x, m.y, m.mk === 'coloso'); return true;
-      case 'monolito-pulso': this.pve.pulse(m.x, m.y, '190,120,255', 320); return true;
+      case 'disuelve': sound.play('m_die', { x: m.x, y: m.y }); this.pve.dissolve(m.x, m.y, m.mk === 'coloso'); return true;
+      case 'monolito-pulso': sound.play('mono', { x: m.x, y: m.y }); this.pve.pulse(m.x, m.y, '190,120,255', 320); return true;
       case 'monolito-completo': this.pve.pulse(m.x, m.y, '255,210,120', 260); return true;
       case 'monolito-roto': this.pve.pulse(m.x, m.y, '255,80,90', 220); return true;
       case 'pulso': this.pve.pulse(m.x, m.y, '140,255,230', 180); return true;
@@ -493,6 +614,7 @@ export class Game {
     this.fpsAcc += dt; this.fpsN++;
     if (this.fpsAcc >= 0.5) { if (!PERF) setText(this.el.fps, `${Math.round(this.fpsN / this.fpsAcc)} fps`); this.fpsAcc = 0; this.fpsN = 0; }
     this.adaptQuality(dt);
+    sound.listener = this.cam;
     this.raf = requestAnimationFrame(this.loop);
   };
 
@@ -566,7 +688,7 @@ export class Game {
     if (!this.out) this.out = { mx, my, dt: 0, sp };
     if (active) this.out.dt += mdt;
     const idle = mx === 0 && my === 0;
-    const urgent = use || this.pendingCast || this.pendingFire || this.pendingSwap || this.pendingName !== null;
+    const urgent = use || this.pendingCast || this.pendingFire || this.pendingSwap || this.pendingName !== null || this.pendingInv !== null;
     if (urgent || t - this.lastSend >= (idle ? 50 : 15) || this.out.dt >= 0.1) this.sendInput(t, use);
     this.updateAbilityHud();
     this.cam.x += (this.me.x - this.cam.x) * Math.min(1, dt * 6);
@@ -1004,6 +1126,7 @@ export class Game {
   private predictProjectiles(n: number, dirX: number, dirY: number, def: ProjectileDef, rangeTiles: number, kind: string) {
     const now = performance.now();
     this.vfx.muzzle(this.me.x + dirX * 24, this.me.y - 22 + dirY * 24, dirX, dirY, this.rgbOf(kind), !FOCOS[kind]);
+    sound.play(this.shotSound(kind));
     for (const [dx, dy] of fanDirections(dirX, dirY, def.count ?? 1, ((def.spreadDeg ?? 0) * Math.PI) / 180)) {
       this.myShots.push({ n, kind, x0: this.me.x + dx * 20, y0: this.me.y - 22 + dy * 20, dx, dy, speed: def.speed, radius: def.radius, range: rangeTiles * TILE, t0: now, seen: false, dead: false, pierce: !!def.pierce });
     }
@@ -1016,11 +1139,22 @@ export class Game {
     this.spawnVfx(kind, x, y, o);
   }
 
+  /** Sonido de cada disparo según el Foco o la Inscripción. */
+  private shotSound(kind: string) {
+    return kind === 'revolver' ? 'shot' : kind === 'arco' ? 'bow' : kind === 'llamarada' ? 'fire' : kind === 'fractura' ? 'quake' : kind === 'lanzamiento' || kind === 'abanico' ? 'swing' : 'magic';
+  }
+
   /** Efecto vistoso de cada ataque o habilidad, encima de la forma que marca su área real. */
   private spawnVfx(kind: string, x: number, y: number, o: Partial<Fx>) {
     const rgb = o.rgb ?? this.rgbOf(kind), dx = o.dx ?? 1, dy = o.dy ?? 0, r = o.r ?? 80;
     const foco = o.foco ?? Object.values(FOCOS).find((f) => f.rgb === rgb)?.id ?? '';
-    const v = this.vfx;
+    const v = this.vfx, at = { x, y };
+    const snd: Record<string, string> = {
+      estocada: 'stab', llamar_piedra: 'dash', corte: 'dash', paso: 'blink', temblor: 'quake', grieta: 'quake', lluvia: 'bow',
+      hilo_vida: 'heal', vinculo: 'heal', velo: 'veil', escuchar: 'wind', rafaga: 'wind', siega: 'swing_heavy',
+    };
+    if (kind === 'arco') sound.play(foco === 'martillo' || foco === 'guadana' ? 'swing_heavy' : foco === 'llama' ? 'fire' : 'swing', at);
+    else if (snd[kind]) sound.play(snd[kind], at);
     switch (kind) {
       case 'arco': return v.slash(x, y, dx, dy, r, o.ang ?? 90, rgb, foco);
       case 'estocada': return v.thrust(x, y, dx, dy, r, o.w ?? 30, rgb);
@@ -1061,7 +1195,7 @@ export class Game {
     for (const p of m.projectiles ?? []) {
       if (p.o === this.myId) { if (p.n != null) mine.add(p.n); continue; }
       // Proyectil nuevo de otro jugador: fogonazo donde sale.
-      if (!this.projectiles.has(p.id)) { const sp = Math.hypot(p.vx, p.vy) || 1; this.vfx.muzzle(p.x, p.y, p.vx / sp, p.vy / sp, this.rgbOf(p.k ?? ''), false); }
+      if (!this.projectiles.has(p.id)) { const sp = Math.hypot(p.vx, p.vy) || 1; this.vfx.muzzle(p.x, p.y, p.vx / sp, p.vy / sp, this.rgbOf(p.k ?? ''), false); sound.play(this.shotSound(p.k ?? ''), { x: p.x, y: p.y }); }
       this.projectiles.set(p.id, { x: p.x, y: p.y, vx: p.vx, vy: p.vy, t: now, k: p.k, r: p.r }); seen.add(p.id);
     }
     for (const id of this.projectiles.keys()) if (!seen.has(id)) this.projectiles.delete(id);
@@ -1319,6 +1453,7 @@ export class Game {
     let near = Math.hypot(this.me.x - cx, this.me.y - cy);
     for (const r of remotes) near = Math.min(near, Math.hypot(r.x - cx, r.y - cy));
     const target = near < T * 1.1 ? 1 : 0, cur = this.gateOpen.get(key) ?? 0, next = cur + (target - cur) * 0.18;
+    if (cur < 0.1 && next >= 0.1) sound.play('door', { x: cx, y: cy }, 1, 300);
     this.gateOpen.set(key, next);
     return next;
   }

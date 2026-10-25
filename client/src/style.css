@@ -198,6 +198,38 @@ button:focus-visible,input:focus-visible{outline:3px solid var(--gold-l);outline
 .slot.wide{grid-column:span 2}
 .inv-value{font-variant-numeric:tabular-nums;color:var(--chalk-gold);font-size:1.05rem;font-weight:700;min-width:3ch;text-align:right}
 .inv-value::after{content:" ◆";color:var(--chalk-dim)}
+/* Mochila: el resumen de abajo se toca para abrirla; los objetos llevan su ícono de tinta. */
+.inv{pointer-events:auto;cursor:pointer;z-index:6}
+.slot.item{background-size:contain!important;background-repeat:no-repeat!important;background-position:center!important;background-color:rgba(255,255,255,.08)!important}
+.loot-strip,.bag,.snd-toggle{z-index:7;pointer-events:auto;font-family:var(--body);color:#f4efe4;text-shadow:0 1px 0 #000}
+.loot-strip{position:absolute;left:50%;transform:translateX(-50%);bottom:calc(150px + env(safe-area-inset-bottom));display:flex;align-items:center;gap:8px;
+  padding:6px 10px;border-radius:12px;background:rgba(14,8,16,.85);border:2px solid rgba(244,239,228,.35);max-width:calc(100% - 24px)}
+.touch-on .loot-strip{bottom:calc(64px + env(safe-area-inset-bottom))}
+.loot-title{font-weight:700;color:var(--chalk-gold);font-size:.9rem}
+.loot-items{display:flex;gap:6px;overflow-x:auto;scrollbar-width:none}
+.loot-items button,.bag-grid button{width:44px;height:44px;border-radius:8px;border:2px solid rgba(244,239,228,.45);background:rgba(255,255,255,.07) center/80% no-repeat;cursor:pointer;flex:none;position:relative}
+.loot-items button[data-fits="false"]{opacity:.45;border-style:dashed}
+.loot-items button:hover,.bag-grid button:hover{border-color:var(--chalk-gold)}
+.loot-all,.bag-detail button{font:700 .85rem var(--body);padding:8px 12px;border-radius:8px;border:2px solid var(--ink);background:linear-gradient(#f6d46a,#d29a26);color:var(--ink);cursor:pointer;white-space:nowrap}
+.bag{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:min(380px,calc(100% - 24px));padding:12px 14px;border-radius:14px;background:rgba(14,8,16,.92);border:2px solid rgba(244,239,228,.4);box-shadow:0 10px 30px rgba(0,0,0,.6)}
+.bag-head{display:flex;align-items:center;gap:10px;margin-bottom:10px}
+.bag-head b{font-family:var(--display);font-size:1.3rem;color:var(--chalk-gold)}
+.bag-info{flex:1;font-size:.9rem;color:#d9cfc0}
+.bag-close{width:36px;height:36px;border-radius:8px;border:2px solid rgba(244,239,228,.4);background:none;color:#f4efe4;font-size:1rem;cursor:pointer}
+.bag-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:8px;justify-items:center}
+.bag-grid button{width:100%;max-width:60px;height:auto;aspect-ratio:1}
+.bag-grid button.wide{grid-column:span 2;max-width:none;aspect-ratio:auto;height:100%}
+.bag-grid button[aria-pressed="true"]{border-color:var(--chalk-gold);box-shadow:0 0 0 2px var(--chalk-gold)}
+.bag-grid .vacio{width:100%;max-width:60px;aspect-ratio:1;border-radius:8px;border:2px dashed rgba(244,239,228,.2)}
+.bag-detail{margin-top:12px;min-height:56px;display:grid;grid-template-columns:1fr auto;gap:4px 10px;align-items:center;font-size:.9rem}
+.bag-detail .nombre{font-weight:700;font-size:1rem}
+.bag-detail .desc{grid-column:1;color:#d9cfc0;font-size:.82rem}
+.bag-detail .acciones{grid-column:2;grid-row:1/span 2;display:flex;gap:6px}
+.bag-detail .soltar{background:linear-gradient(#a06a3c,#7a4a28);color:#fff3d6}
+.bag-hint{grid-column:1/-1;color:#a99f90;font-style:italic}
+.snd-toggle{position:absolute;right:max(14px,env(safe-area-inset-right));top:calc(64px + env(safe-area-inset-top));width:36px;height:36px;border-radius:50%;
+  border:2px solid rgba(244,239,228,.45);background:rgba(14,8,16,.6);font-size:1.1rem;cursor:pointer}
+.snd-toggle[aria-checked="false"]{opacity:.5;text-decoration:line-through}
 @media (max-width:520px){.slots{grid-template-columns:repeat(10,14px);gap:3px}.slot{height:14px}}
 
 /* Sincronización con el portal: barra menta en tramos. */

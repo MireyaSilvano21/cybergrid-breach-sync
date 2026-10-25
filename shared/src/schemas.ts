@@ -51,6 +51,8 @@ export const ClientMessageSchema = z.discriminatedUnion('type', [
     swap: z.boolean().default(false),
     /** Prueba de Nombre: ángulo (rad) en que el jugador vio la aguja al tocar. */
     name: z.number().min(0).max(7).optional(),
+    /** Mochila: tomar un objeto del contenedor cercano, tomar todo, soltar o usar uno propio. */
+    inv: z.object({ a: z.enum(['take', 'all', 'drop', 'use']), i: z.number().int().min(0).max(40), from: z.string().max(64).optional() }).optional(),
   }),
 ]);
 export type ClientMessage = z.infer<typeof ClientMessageSchema>;
