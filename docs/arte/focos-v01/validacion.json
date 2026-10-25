@@ -1,0 +1,672 @@
+{
+  "version": "v01",
+  "controles_tecnicos": "correctos",
+  "png_produccion": 32,
+  "decodificacion_completa": true,
+  "armas": [
+    {
+      "id": "gemelas",
+      "dimensiones": [
+        256,
+        512
+      ],
+      "modo": "RGBA",
+      "margenes_izq_arriba_der_abajo": [
+        73,
+        12,
+        62,
+        13
+      ],
+      "emision_rgb": [
+        180,
+        200,
+        255
+      ],
+      "emision_registrada": true,
+      "agarre": [
+        135,
+        418
+      ],
+      "agarre_sobre_base_opaca": true
+    },
+    {
+      "id": "revolver",
+      "dimensiones": [
+        256,
+        512
+      ],
+      "modo": "RGBA",
+      "margenes_izq_arriba_der_abajo": [
+        43,
+        12,
+        23,
+        12
+      ],
+      "emision_rgb": [
+        170,
+        200,
+        255
+      ],
+      "emision_registrada": true,
+      "agarre": [
+        163,
+        421
+      ],
+      "agarre_sobre_base_opaca": true
+    },
+    {
+      "id": "daga",
+      "dimensiones": [
+        256,
+        512
+      ],
+      "modo": "RGBA",
+      "margenes_izq_arriba_der_abajo": [
+        27,
+        19,
+        54,
+        12
+      ],
+      "emision_rgb": [
+        255,
+        90,
+        90
+      ],
+      "emision_registrada": true,
+      "agarre": [
+        106,
+        395
+      ],
+      "agarre_sobre_base_opaca": true
+    },
+    {
+      "id": "llama",
+      "dimensiones": [
+        256,
+        768
+      ],
+      "modo": "RGBA",
+      "margenes_izq_arriba_der_abajo": [
+        57,
+        38,
+        48,
+        39
+      ],
+      "emision_rgb": [
+        255,
+        180,
+        60
+      ],
+      "emision_registrada": true,
+      "agarre": [
+        133,
+        620
+      ],
+      "agarre_sobre_base_opaca": true
+    },
+    {
+      "id": "cetro_lunar",
+      "dimensiones": [
+        256,
+        768
+      ],
+      "modo": "RGBA",
+      "margenes_izq_arriba_der_abajo": [
+        34,
+        12,
+        33,
+        12
+      ],
+      "emision_rgb": [
+        230,
+        160,
+        255
+      ],
+      "emision_registrada": true,
+      "agarre": [
+        104,
+        665
+      ],
+      "agarre_sobre_base_opaca": true
+    },
+    {
+      "id": "lanza",
+      "dimensiones": [
+        256,
+        768
+      ],
+      "modo": "RGBA",
+      "margenes_izq_arriba_der_abajo": [
+        63,
+        12,
+        70,
+        12
+      ],
+      "emision_rgb": [
+        255,
+        140,
+        50
+      ],
+      "emision_registrada": true,
+      "agarre": [
+        134,
+        614
+      ],
+      "agarre_sobre_base_opaca": true
+    },
+    {
+      "id": "guadana",
+      "dimensiones": [
+        384,
+        768
+      ],
+      "modo": "RGBA",
+      "margenes_izq_arriba_der_abajo": [
+        20,
+        21,
+        20,
+        25
+      ],
+      "emision_rgb": [
+        255,
+        80,
+        110
+      ],
+      "emision_registrada": true,
+      "agarre": [
+        339,
+        631
+      ],
+      "agarre_sobre_base_opaca": true
+    },
+    {
+      "id": "martillo",
+      "dimensiones": [
+        384,
+        768
+      ],
+      "modo": "RGBA",
+      "margenes_izq_arriba_der_abajo": [
+        26,
+        26,
+        14,
+        41
+      ],
+      "emision_rgb": [
+        255,
+        170,
+        140
+      ],
+      "emision_registrada": true,
+      "agarre": [
+        186,
+        574
+      ],
+      "agarre_sobre_base_opaca": true
+    },
+    {
+      "id": "cetro_rubi",
+      "dimensiones": [
+        256,
+        768
+      ],
+      "modo": "RGBA",
+      "margenes_izq_arriba_der_abajo": [
+        53,
+        12,
+        63,
+        12
+      ],
+      "emision_rgb": [
+        255,
+        70,
+        80
+      ],
+      "emision_registrada": true,
+      "agarre": [
+        126,
+        610
+      ],
+      "agarre_sobre_base_opaca": true
+    },
+    {
+      "id": "arco",
+      "dimensiones": [
+        384,
+        768
+      ],
+      "modo": "RGBA",
+      "margenes_izq_arriba_der_abajo": [
+        120,
+        12,
+        103,
+        12
+      ],
+      "emision_rgb": [
+        255,
+        250,
+        230
+      ],
+      "emision_registrada": true,
+      "agarre": [
+        204,
+        382
+      ],
+      "agarre_sobre_base_opaca": true
+    },
+    {
+      "id": "arco_flecha",
+      "dimensiones": [
+        256,
+        512
+      ],
+      "modo": "RGBA",
+      "margenes_izq_arriba_der_abajo": [
+        95,
+        12,
+        56,
+        12
+      ],
+      "emision_rgb": [
+        255,
+        250,
+        230
+      ],
+      "emision_registrada": true,
+      "agarre": [
+        169,
+        350
+      ],
+      "agarre_sobre_base_opaca": true
+    }
+  ],
+  "iconos": [
+    {
+      "id": "gemelas",
+      "dimensiones": [
+        128,
+        128
+      ],
+      "rgb_blanco_puro": true,
+      "margenes": [
+        12,
+        13,
+        12,
+        13
+      ],
+      "trazo_nominal_px": 9
+    },
+    {
+      "id": "revolver",
+      "dimensiones": [
+        128,
+        128
+      ],
+      "rgb_blanco_puro": true,
+      "margenes": [
+        12,
+        32,
+        12,
+        33
+      ],
+      "trazo_nominal_px": 9
+    },
+    {
+      "id": "daga",
+      "dimensiones": [
+        128,
+        128
+      ],
+      "rgb_blanco_puro": true,
+      "margenes": [
+        17,
+        12,
+        17,
+        12
+      ],
+      "trazo_nominal_px": 9
+    },
+    {
+      "id": "llama",
+      "dimensiones": [
+        128,
+        128
+      ],
+      "rgb_blanco_puro": true,
+      "margenes": [
+        40,
+        12,
+        40,
+        12
+      ],
+      "trazo_nominal_px": 9
+    },
+    {
+      "id": "cetro_lunar",
+      "dimensiones": [
+        128,
+        128
+      ],
+      "rgb_blanco_puro": true,
+      "margenes": [
+        27,
+        12,
+        27,
+        12
+      ],
+      "trazo_nominal_px": 9
+    },
+    {
+      "id": "lanza",
+      "dimensiones": [
+        128,
+        128
+      ],
+      "rgb_blanco_puro": true,
+      "margenes": [
+        50,
+        12,
+        50,
+        12
+      ],
+      "trazo_nominal_px": 9
+    },
+    {
+      "id": "guadana",
+      "dimensiones": [
+        128,
+        128
+      ],
+      "rgb_blanco_puro": true,
+      "margenes": [
+        29,
+        12,
+        30,
+        12
+      ],
+      "trazo_nominal_px": 9
+    },
+    {
+      "id": "martillo",
+      "dimensiones": [
+        128,
+        128
+      ],
+      "rgb_blanco_puro": true,
+      "margenes": [
+        33,
+        12,
+        34,
+        12
+      ],
+      "trazo_nominal_px": 9
+    },
+    {
+      "id": "cetro_rubi",
+      "dimensiones": [
+        128,
+        128
+      ],
+      "rgb_blanco_puro": true,
+      "margenes": [
+        22,
+        12,
+        22,
+        12
+      ],
+      "trazo_nominal_px": 9
+    },
+    {
+      "id": "arco",
+      "dimensiones": [
+        128,
+        128
+      ],
+      "rgb_blanco_puro": true,
+      "margenes": [
+        32,
+        12,
+        32,
+        12
+      ],
+      "trazo_nominal_px": 9
+    }
+  ],
+  "fuentes": {
+    "gemelas": {
+      "sha256": "c57eba14c081b435d3d1c8695054d1113eab8d022b8332d5358cf88c1b5f6e67",
+      "lienzo": [
+        256,
+        512
+      ],
+      "recorte": [
+        25,
+        20,
+        808,
+        1774
+      ],
+      "escala": [
+        0.2784163473818646,
+        0.2782212086659065
+      ],
+      "traslacion": [
+        19,
+        12
+      ]
+    },
+    "revolver": {
+      "sha256": "b2aadc71cb7191555703471e55770b473a49244432bbeba63de95fe7b78fe2e0",
+      "lienzo": [
+        256,
+        512
+      ],
+      "recorte": [
+        55,
+        7,
+        886,
+        1774
+      ],
+      "escala": [
+        0.2767749699157641,
+        0.2761743067345784
+      ],
+      "traslacion": [
+        13,
+        12
+      ]
+    },
+    "daga": {
+      "sha256": "e6c0883aa84403e2045c53a2d8a096a3494fbd6f3b7995f0169f321b7c0f3be5",
+      "lienzo": [
+        256,
+        512
+      ],
+      "recorte": [
+        168,
+        35,
+        867,
+        1718
+      ],
+      "escala": [
+        0.290414878397711,
+        0.28995840760546643
+      ],
+      "traslacion": [
+        26,
+        12
+      ]
+    },
+    "llama": {
+      "sha256": "e48531279ba20dd971fb97af43709d7d4c6a1495077d5f842cf832793db52e24",
+      "lienzo": [
+        256,
+        768
+      ],
+      "recorte": [
+        0,
+        24,
+        704,
+        2120
+      ],
+      "escala": [
+        0.32954545454545453,
+        0.32967557251908397
+      ],
+      "traslacion": [
+        12,
+        38
+      ]
+    },
+    "cetro_lunar": {
+      "sha256": "00a22a511e464b33e6f85e76a01e7b54101897dc9c0c0f2d3070b41945e39860",
+      "lienzo": [
+        256,
+        768
+      ],
+      "recorte": [
+        154,
+        26,
+        708,
+        2159
+      ],
+      "escala": [
+        0.3483754512635379,
+        0.3488045007032349
+      ],
+      "traslacion": [
+        31,
+        12
+      ]
+    },
+    "lanza": {
+      "sha256": "08fbdd7b6375255174b0dd576a619d8d5afc818181e3ace638bb143d777c7b3b",
+      "lienzo": [
+        256,
+        768
+      ],
+      "recorte": [
+        122,
+        16,
+        575,
+        2154
+      ],
+      "escala": [
+        0.3487858719646799,
+        0.3479887745556595
+      ],
+      "traslacion": [
+        49,
+        12
+      ]
+    },
+    "guadana": {
+      "sha256": "fed203cca94c159e4fbb67833a28948a4537ffb7bd57c4260b8b36210ae7348b",
+      "lienzo": [
+        384,
+        768
+      ],
+      "recorte": [
+        40,
+        23,
+        840,
+        1755
+      ],
+      "escala": [
+        0.43,
+        0.4295612009237875
+      ],
+      "traslacion": [
+        20,
+        12
+      ]
+    },
+    "martillo": {
+      "sha256": "5d009b373678533919fb03adcacc231e43c353e8427f7c8dcbdfb2cb9b881df5",
+      "lienzo": [
+        384,
+        768
+      ],
+      "recorte": [
+        0,
+        19,
+        873,
+        1756
+      ],
+      "escala": [
+        0.41237113402061853,
+        0.41220495106505467
+      ],
+      "traslacion": [
+        12,
+        26
+      ]
+    },
+    "cetro_rubi": {
+      "sha256": "afbc5ee59661dd8a5c2ee8fd09b7dd73ee2067ff012141e25adc74eab6f97711",
+      "lienzo": [
+        256,
+        768
+      ],
+      "recorte": [
+        57,
+        63,
+        682,
+        2084
+      ],
+      "escala": [
+        0.368,
+        0.3681345868381989
+      ],
+      "traslacion": [
+        13,
+        12
+      ]
+    },
+    "arco": {
+      "sha256": "8680b90d1863fe174cbe54d6cd22bd64b72465bb9b9e40689b0944adc717af18",
+      "lienzo": [
+        384,
+        768
+      ],
+      "recorte": [
+        43,
+        16,
+        857,
+        1745
+      ],
+      "escala": [
+        0.42997542997543,
+        0.43030653556969345
+      ],
+      "traslacion": [
+        17,
+        12
+      ]
+    },
+    "arco_flecha": {
+      "sha256": "0ab03d455d031beeacc1885d328f03dfe2894eb2d4f875dbf3ee7f56c5cd845e",
+      "lienzo": [
+        256,
+        512
+      ],
+      "recorte": [
+        57,
+        53,
+        546,
+        1696
+      ],
+      "escala": [
+        0.2965235173824131,
+        0.29701765063907487
+      ],
+      "traslacion": [
+        55,
+        12
+      ]
+    }
+  },
+  "vistas_QA": 28,
+  "comparacion_referencias_terceros": "pendiente: imágenes no disponibles",
+  "prueba_en_motor": "no realizada",
+  "revision_visual": "Láminas revisadas; detalles finos se simplifican a 70 px. Tiza blanca sobre pergamino presenta contraste bajo por especificación."
+}

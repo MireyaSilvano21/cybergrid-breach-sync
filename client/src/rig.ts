@@ -11,6 +11,7 @@ import {
   type Appearance, type BoneId, type BodyDef, type HeadId, type JointSet, type OutfitId, type Pose, type View,
 } from '@shared/index';
 import { INK, shade } from './art';
+import { focoArt, drawFocoArt } from './focos-art';
 
 type Ctx = CanvasRenderingContext2D;
 type P = [number, number];
@@ -348,13 +349,16 @@ function leg(side: 'L' | 'R', far = false): Piece[] {
 }
 
 /**
- * Foco en la mano: formas provisionales de las 10 armas de referencia (el arte final las reemplaza).
+ * Foco en la mano: arte final de Astra (focos-art.ts) con formas provisionales mientras carga.
  * Se dibujan en la mano derecha; las Espadas Gemelas llevan una hoja en cada mano.
  */
 function weapon(foco: string, hand: 'R' | 'L' = 'R'): Piece {
   return { bone: hand === 'R' ? 'handR' : 'handL', draw: (c) => {
     const w = hand === 'R' ? c.j.wristR : c.j.wristL, a = c.b.dims.arm, p = c.p, H = c.b.dims.height;
     const x = w[0] + (c.view === 'side' ? a * 0.15 : 0), y0 = w[1] + a * 0.35;
+    // Arte final de Astra cuando ya cargó; mientras tanto, las formas provisionales de abajo.
+    const art = focoArt(foco);
+    if (art) { drawFocoArt(p.g, art, x, y0, H, hand === 'L'); return; }
     const glow = (gx: number, gy: number, r: number, rgb: string) => {
       const g = p.g, gr = g.createRadialGradient(gx, gy, 0, gx, gy, r);
       gr.addColorStop(0, `rgba(${rgb},.7)`); gr.addColorStop(1, `rgba(${rgb},0)`);

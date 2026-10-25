@@ -1,0 +1,134 @@
+{
+  "foco_gemelas.png": {
+    "agarre": [
+      135,
+      418
+    ]
+  },
+  "foco_gemelas_brillo.png": {
+    "agarre": [
+      135,
+      418
+    ]
+  },
+  "foco_revolver.png": {
+    "agarre": [
+      163,
+      421
+    ]
+  },
+  "foco_revolver_brillo.png": {
+    "agarre": [
+      163,
+      421
+    ]
+  },
+  "foco_daga.png": {
+    "agarre": [
+      106,
+      395
+    ]
+  },
+  "foco_daga_brillo.png": {
+    "agarre": [
+      106,
+      395
+    ]
+  },
+  "foco_llama.png": {
+    "agarre": [
+      133,
+      620
+    ]
+  },
+  "foco_llama_brillo.png": {
+    "agarre": [
+      133,
+      620
+    ]
+  },
+  "foco_cetro_lunar.png": {
+    "agarre": [
+      104,
+      665
+    ]
+  },
+  "foco_cetro_lunar_brillo.png": {
+    "agarre": [
+      104,
+      665
+    ]
+  },
+  "foco_lanza.png": {
+    "agarre": [
+      134,
+      614
+    ]
+  },
+  "foco_lanza_brillo.png": {
+    "agarre": [
+      134,
+      614
+    ]
+  },
+  "foco_guadana.png": {
+    "agarre": [
+      339,
+      631
+    ]
+  },
+  "foco_guadana_brillo.png": {
+    "agarre": [
+      339,
+      631
+    ]
+  },
+  "foco_martillo.png": {
+    "agarre": [
+      186,
+      574
+    ]
+  },
+  "foco_martillo_brillo.png": {
+    "agarre": [
+      186,
+      574
+    ]
+  },
+  "foco_cetro_rubi.png": {
+    "agarre": [
+      126,
+      610
+    ]
+  },
+  "foco_cetro_rubi_brillo.png": {
+    "agarre": [
+      126,
+      610
+    ]
+  },
+  "foco_arco.png": {
+    "agarre": [
+      204,
+      382
+    ]
+  },
+  "foco_arco_brillo.png": {
+    "agarre": [
+      204,
+      382
+    ]
+  },
+  "foco_arco_flecha.png": {
+    "agarre": [
+      169,
+      350
+    ]
+  },
+  "foco_arco_flecha_brillo.png": {
+    "agarre": [
+      169,
+      350
+    ]
+  }
+}
