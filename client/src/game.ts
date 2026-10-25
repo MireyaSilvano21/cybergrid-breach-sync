@@ -3,7 +3,7 @@ import {
   FOCOS, NOMBRES, DEFAULT_BUILD, abilityFor, clampAim, fanDirections, blinkTarget, dashMulFor, reloadAmmo, solidAt, AMMO_MAX, GCD_MS, SWAP_MS, DASH_S, DASH_MUL,
   type Build, type Slot, type Shape, type ProjectileDef,
   animate, appearanceFor, BODIES, type Appearance, type AnimInput, type ActionKind, type View,
-  TEAMS, RESONANCE, MONSTERS, RITUAL, STRIKE_DELAY_MS, needleAt, openVault,
+  TEAMS, RESONANCE, stackLabels, MONSTERS, RITUAL, STRIKE_DELAY_MS, needleAt, openVault,
   type GridMap, type TimedPosition,
 } from '@shared/index';
 import type { Net } from './net';
@@ -12,7 +12,7 @@ import { Sprites, isDeepWall, drawDiagWall, drawThinCracks, drawCover, drawBars,
 import { drawCharacter } from './rig';
 import { drawErrante, drawSusurrante, drawColoso, drawRuneTelegraph, drawZoneTelegraph, shadow as monShadow, PveFx, MONSTER_SCALE, SUSURRANTE_MOUTH, type ErrantePose, type SusurrantePose, type ColosoPose } from './desnombrados';
 
-interface Remote { id: string; name: string; buf: TimedPosition[]; hp: number; ax: number; ay: number; atk: boolean; seen: number; lx: number; ly: number; walk: number; flash: number; foco?: string; slow?: boolean; root?: boolean; invis?: boolean; rev?: boolean; mark?: boolean; team?: number; swingAt: number; shotAt: number; castAt: number; mv: number; drawT: number }
+interface Remote { id: string; name: string; buf: TimedPosition[]; hp: number; ax: number; ay: number; atk: boolean; seen: number; lx: number; ly: number; walk: number; flash: number; foco?: string; slow?: boolean; root?: boolean; invis?: boolean; rev?: boolean; mark?: boolean; team?: number; labelDy?: number; swingAt: number; shotAt: number; castAt: number; mv: number; drawT: number }
 /** Desnombrado visto: posiciones para interpolar, estado del servidor y cuándo golpeó (para animar). */
 interface Mon { id: number; k: 'errante' | 'susurrante' | 'coloso'; buf: TimedPosition[]; hp: number; st: string; p: number; ax: number; ay: number; dx: number; seen: number; strikeAt: number; face: number }
 /** Monolito en la instantánea: fase del ritual, equipo, integridad, progreso (%), oleada y descanso (s). */
@@ -757,21 +757,30 @@ export class Game {
 
     P?.push(performance.now());
     // 5. Interfaz dentro del mundo: nombres, daño, indicaciones y el colapso final.
-    for (const { r, x, y } of remotesNow) {
+    // Nombre y vida forman un bloque; si varios se enciman, suben los de atrás (con una línea a su dueño)
+    // y se deslizan suave para que no brinquen cuando la gente se mueve.
+    const labels = remotesNow.map(({ r, x, y }) => {
+      const ally = !this.isEnemy(r), tc = teamColor(r.team, '#e2c8ff'), lab = labelSprite(r.name, ally ? tc : '#e2c8ff');
+      return { r, x, y, ally, tc, lab };
+    });
+    const lift = stackLabels(labels.map(({ r, x, y, lab }) => ({ id: r.id, x, y: y - 94, w: Math.max(46, lab.width / 2), h: 23 })));
+    for (const { r, x, y, ally, tc, lab } of labels) {
       // Compañeros: vida y nombre en el color del equipo. Rivales: vida roja.
-      const ally = !this.isEnemy(r), tc = teamColor(r.team, '#e2c8ff');
-      g.fillStyle = 'rgba(20,10,22,.8)'; g.fillRect(x - 23, y - 79, 46, 8);
-      g.fillStyle = ally ? tc : '#ff6b6b'; g.fillRect(x - 22, y - 78, 44 * (r.hp / 100), 6);
-      const lab = labelSprite(r.name, ally ? tc : '#e2c8ff');
-      g.drawImage(lab, x - lab.width / 4, y - 85 - 9, lab.width / 2, lab.height / 2);
+      r.labelDy = (r.labelDy ?? 0) + ((lift.get(r.id) ?? 0) - (r.labelDy ?? 0)) * Math.min(1, pdt * 14);
+      const dy = Math.round(r.labelDy);
+      if (dy < -6) { g.strokeStyle = ally ? tc : 'rgba(226,200,255,.6)'; g.globalAlpha = 0.55; g.lineWidth = 2; g.beginPath(); g.moveTo(x, y - 71 + dy); g.lineTo(x, y - 74); g.stroke(); g.globalAlpha = 1; }
+      g.fillStyle = 'rgba(20,10,22,.8)'; g.fillRect(x - 23, y - 79 + dy, 46, 8);
+      g.fillStyle = ally ? tc : '#ff6b6b'; g.fillRect(x - 22, y - 78 + dy, 44 * (r.hp / 100), 6);
+      g.drawImage(lab, x - lab.width / 4, y - 94 + dy, lab.width / 2, lab.height / 2);
     }
     // Rivales revelados (Escuchar al Viento, la Resonancia o el portal): marca roja que se ve aunque estén en la oscuridad.
     for (const { r, x, y } of remotesNow) {
-      if (r.mark) this.drawResonanceMark(x, y - 112, t);
+      const dy = Math.round(r.labelDy ?? 0);
+      if (r.mark) this.drawResonanceMark(x, y - 112 + dy, t);
       if (!r.rev) continue;
       const pulse = 1 + Math.sin(t / 120) * 0.08;
       g.strokeStyle = 'rgba(255,90,90,.9)'; g.lineWidth = 3; g.beginPath(); g.ellipse(x, y, 30 * pulse, 12 * pulse, 0, 0, 6.283); g.stroke();
-      g.fillStyle = '#ff5a5a'; g.beginPath(); g.moveTo(x, y - 92); g.lineTo(x - 9, y - 106); g.lineTo(x + 9, y - 106); g.closePath(); g.fill();
+      g.fillStyle = '#ff5a5a'; g.beginPath(); g.moveTo(x, y - 92 + dy); g.lineTo(x - 9, y - 106 + dy); g.lineTo(x + 9, y - 106 + dy); g.closePath(); g.fill();
     }
     this.drawRituals(sec);
     this.drawAmmo();
