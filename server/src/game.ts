@@ -1,7 +1,7 @@
 import {
   PLAYER, TICK_MS, SYNC_SECONDS, computeDamage, applyHealth, generateValidMap, moveCircle, hasLineOfSight,
   phaseAt, scalePhases, DEFAULT_PHASES, placeChests, addToInventory, itemValue, INTERACT_RANGE,
-  pushHistory, positionAt, clampRewind, type TimedPoint, createMoveQueue, enqueueMove, consumeMoves, type MoveQueue,
+  isSolidWorld, pushHistory, positionAt, clampRewind, type TimedPoint, createMoveQueue, enqueueMove, consumeMoves, type MoveQueue,
   type GridMap, type InputMessage, type MatchRecord, type PhaseConfig,
   type ChestKind,
 } from '@shared/index';
@@ -54,8 +54,12 @@ export class Match {
     conns.forEach((conn, i) => {
       const sp = this.map.spawns[i % this.map.spawns.length];
       const ring = Math.floor(i / this.map.spawns.length);
+      // Compañeros de equipo junto a la llegada, en el primer lugar libre de obstáculos.
+      const free = (x: number, y: number) => [0, Math.PI / 2, Math.PI, Math.PI * 1.5, Math.PI / 4, Math.PI * 1.25].every((a) => !isSolidWorld(this.map, x + Math.cos(a) * PLAYER.radius, y + Math.sin(a) * PLAYER.radius)) && !isSolidWorld(this.map, x, y);
+      const offs = ring === 0 ? [[0, 0]] : [[48, 0], [-48, 0], [0, 48], [0, -48], [48, 48], [-48, -48], [48, -48], [-48, 48]].map(([dx, dy]) => [dx * ring, dy * ring]);
+      const [ox, oy] = offs.find(([dx, dy]) => free(sp.x + dx, sp.y + dy)) ?? [0, 0];
       this.actors.set(conn.id, {
-        conn, x: sp.x + ring * 48, y: sp.y + ring * 48, ax: 0, ay: 1,
+        conn, x: sp.x + ox, y: sp.y + oy, ax: 0, ay: 1,
         hp: PLAYER.maxHp, shield: 0, alive: true, extracted: false,
         input: null, lastSeq: 0, moves: createMoveQueue(), cooldownUntil: 0, attackAt: 0, syncT: 0,
         kills: 0, deaths: 0, endedAt: null,
@@ -105,6 +109,9 @@ export class Match {
     if (this.finished) return;
     const dt = TICK_MS / 1000, t = (now - this.startedAt) / 1000;
     const ph = phaseAt(t, this.phases);
+    // Los sellos se abren con las Llamadas: bóvedas mayores en la primera, el Corazón en la segunda.
+    this.map.sealsOpen.vault = t >= this.phases.primeraLlamada;
+    this.map.sealsOpen.heart = t >= this.phases.segundaLlamada;
     const portals = this.openPortals(t);
     const lastPortal = portals[1];
     const collapseProgress = ph.collapsing ? (t - this.phases.desnombrar) / (this.phases.fin - this.phases.desnombrar) : 0;

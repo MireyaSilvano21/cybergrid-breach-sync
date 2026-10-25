@@ -11,3 +11,4 @@ export * from './loot';
 export * from './view';
 export * from './lagcomp';
 export * from './prediction';
+export * from './templates';
