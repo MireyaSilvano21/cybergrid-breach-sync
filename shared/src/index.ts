@@ -18,3 +18,4 @@ export * from './teams';
 export * from './lobby';
 export * from './desnombrados';
 export * from './ritual';
+export * from './labels';
