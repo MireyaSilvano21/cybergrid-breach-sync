@@ -1,0 +1,17 @@
+{
+  "orden": [
+    "izquierda",
+    "arriba",
+    "derecha",
+    "abajo"
+  ],
+  "unidades": "px",
+  "archivos": {
+    "tiza-recuadro.png": [
+      24,
+      24,
+      24,
+      24
+    ]
+  }
+}

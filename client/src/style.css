@@ -2,7 +2,9 @@
  * Interfaz de CyberGrid
  * - Menús (acceso, lobby, resultados): libro y cofre de madera con hojas, cuero y pergamino.
  * - Partida: HUD de tiza (trazos blancos con grano y grietas) para no tapar el juego.
- * Las piezas de arte viven en /assets/ui/ como archivos sueltos para que el arte final las reemplace.
+ * Las piezas de arte viven en /assets/ui/ como archivos sueltos. Lotes A y B de Astra (v01): marcos, placas y
+ * botones por cortes (border-image con los cortes de docs/arte/interfaz-v01), texturas que se repiten e
+ * íconos de tiza en blanco con la forma en alfa (se usan como máscara y el juego pone el color).
  */
 :root{
   --void:#0b0610; --ink:#1d0c16;
@@ -12,7 +14,8 @@
   --chalk:#f4efe4; --chalk-dim:rgba(244,239,228,.62); --chalk-hp:#e8643f; --chalk-hp-d:#5a2a24; --chalk-mint:#8fd6a8; --chalk-gold:#ffd36a;
   --text:#f3e6d8; --muted:#bfa7ad; --danger:#b3261e; --ok:#3f7a25; --rune:#ff5ad8; --ember:#ffb347;
   --display:'Grenze Gotisch',Georgia,serif; --body:'Alegreya Sans','Trebuchet MS',system-ui,sans-serif; --sketch:'Cabin Sketch','Alegreya Sans',system-ui,sans-serif;
-  --tiza:url(/assets/ui/tiza.svg); --grano:url(/assets/ui/grano.svg); --papel:url(/assets/ui/pergamino.svg);
+  --tiza:url(/assets/ui/tiza-textura.png); --grano:url(/assets/ui/grano.svg); --papel:url(/assets/ui/pergamino.png) 0 0/384px;
+  --cuero-verde:url(/assets/ui/cuero-verde.png) 0 0/384px; --cuero-cafe:url(/assets/ui/cuero-cafe.png) 0 0/384px;
   color-scheme:dark;
 }
 *{box-sizing:border-box}
@@ -33,33 +36,36 @@ button:focus-visible,input:focus-visible{outline:3px solid var(--gold-l);outline
 .row{display:flex;gap:10px;margin-top:14px}.row.wrap{flex-wrap:wrap}.row.wrap input{flex:1 1 160px;width:auto}
 .error{color:var(--danger);font-weight:700;min-height:1.2em;margin:8px 0 0;font-size:.9rem}
 
-/* Botones de madera (secundario) y de hoja (principal) con tinta y un canto que se hunde al presionar. */
+/* Botones de madera (secundario), de hoja (principal) y dorado (elegido): arte por cortes de 32 px.
+   La imagen sale de --btn-img para que presionar solo cambie la imagen; los botones con estilo propio
+   (pestañas, escuelas) usan el atajo border y así no heredan el arte. */
 .panel-screen button,.result button{font:700 1rem var(--body);color:#fff3d6;cursor:pointer;
-  background:linear-gradient(#a06a3c,#7a4a28);border:3px solid var(--ink);border-radius:10px;padding:9px 16px;
-  box-shadow:0 4px 0 var(--ink),inset 0 2px 0 rgba(255,220,170,.35);text-shadow:0 2px 0 rgba(29,12,22,.55);transition:transform .06s,box-shadow .06s}
-.panel-screen button:active:not(:disabled),.result button:active{transform:translateY(3px);box-shadow:0 1px 0 var(--ink),inset 0 2px 0 rgba(255,220,170,.35)}
-.panel-screen button.primary,.result button.primary{background:linear-gradient(#8cc05c,#5a8a38)}
-.panel-screen button[aria-pressed="true"]{background:linear-gradient(#f6d46a,#d29a26);color:var(--ink);text-shadow:none}
+  --btn-img:url(/assets/ui/boton-madera.png);--btn-img-down:url(/assets/ui/boton-madera-presionado.png);
+  background:none;border:3px solid transparent;border-image:var(--btn-img) 32 fill / var(--btn-w,12px) stretch;border-radius:10px;padding:9px 16px;
+  text-shadow:0 2px 0 rgba(29,12,22,.55);transition:transform .06s}
+.panel-screen button:active:not(:disabled),.result button:active{transform:translateY(2px);--btn-img:var(--btn-img-down)}
+.panel-screen button.primary,.result button.primary{--btn-img:url(/assets/ui/boton-hoja.png);--btn-img-down:url(/assets/ui/boton-hoja-presionado.png)}
+.panel-screen button[aria-pressed="true"]{--btn-img:url(/assets/ui/boton-dorado.png);--btn-img-down:url(/assets/ui/boton-dorado.png);color:var(--ink);text-shadow:none}
 .panel-screen button:disabled{filter:grayscale(.7);opacity:.55;cursor:not-allowed}
 .panel-screen button.link{background:none;border:none;box-shadow:none;padding:0;color:var(--gold-l);text-decoration:underline;text-shadow:none;font-weight:500}
 
-/* Placas: tabla verde con filo dorado (títulos y encabezado). */
-.placa{position:relative;background:var(--grano),linear-gradient(#4c6e33,var(--moss));background-size:200px,cover;border:3px solid var(--ink);border-radius:12px;
-  box-shadow:inset 0 0 0 3px var(--gold),inset 0 0 0 6px var(--ink),0 5px 0 rgba(10,5,3,.7);padding:12px 20px;color:#fff3d6}
+/* Placas: tabla verde con filo dorado (títulos y encabezado), por cortes de 40 px. */
+.placa{position:relative;background:none;border:4px solid transparent;border-image:url(/assets/ui/placa-verde.png) 40 fill / 18px stretch;
+  filter:drop-shadow(0 5px 0 rgba(10,5,3,.6));padding:12px 22px;color:#fff3d6}
 .placa h1,.placa h2{color:#fff1c8;text-shadow:0 3px 0 var(--ink),2px 0 0 var(--ink),-2px 0 0 var(--ink),0 -2px 0 var(--ink)}
 .placa.titulo{text-align:center;padding:8px 18px}
 
 /* Hojas de enredadera en las esquinas. */
-.hojas{position:absolute;width:132px;height:94px;background:url(/assets/ui/hojas.svg) no-repeat 0 0/contain;pointer-events:none;z-index:3}
+.hojas{position:absolute;width:132px;height:94px;background:url(/assets/ui/hojas.png) no-repeat 0 0/contain;pointer-events:none;z-index:3}
 .hojas.tl{top:-30px;left:-26px}
 .hojas.tr{top:-30px;right:-26px;transform:scaleX(-1)}
 .hojas.br{bottom:-30px;right:-26px;transform:scale(-1,-1)}
 
 /* Acceso: tapa de un tomo forrado en cuero verde con filo dorado. */
 .tomo{position:relative;width:min(400px,100%);padding:26px 24px 24px;border:4px solid var(--ink);border-radius:18px;
-  background:var(--grano),linear-gradient(160deg,#4f7436,#34502a);background-size:200px,cover;
+  background:var(--cuero-verde);
   box-shadow:inset 0 0 0 5px var(--gold),inset 0 0 0 8px var(--ink),inset 0 0 40px rgba(10,20,5,.6),0 10px 0 #120a06,0 24px 50px rgba(0,0,0,.55)}
-.tomo .placa.titulo{background:var(--grano),linear-gradient(#a06a3c,var(--wood));background-size:200px,cover;margin:0 10px}
+.tomo .placa.titulo{border-image-source:url(/assets/ui/placa-madera.png);margin:0 10px}
 .brand{font-family:var(--display);font-size:3rem;margin:0;line-height:1.05}
 .sub{margin:10px 0 16px;color:var(--gold-l);letter-spacing:.2em;text-transform:uppercase;font-size:.8rem;text-align:center;font-weight:700;text-shadow:0 2px 0 var(--ink)}
 .hoja{background:var(--papel);border:3px solid var(--ink);border-radius:10px;padding:16px 18px 18px;color:var(--paper-ink);box-shadow:inset 0 0 22px rgba(120,80,30,.45),0 4px 0 rgba(10,5,3,.5)}
@@ -74,7 +80,7 @@ button:focus-visible,input:focus-visible{outline:3px solid var(--gold-l);outline
 #socket-status[data-state="connected"]{color:#c8f08c}
 #socket-status[data-state="connected"]::before{background:#8cd65a}
 .libro{position:relative;margin-top:16px;padding:14px;border:4px solid var(--ink);border-radius:20px;
-  background:var(--grano),linear-gradient(#6e4027,var(--leather));background-size:200px,cover;box-shadow:inset 0 0 0 3px #8a5634,0 10px 0 #120a06,0 24px 50px rgba(0,0,0,.55)}
+  background:var(--cuero-cafe);box-shadow:inset 0 0 0 3px #8a5634,0 10px 0 #120a06,0 24px 50px rgba(0,0,0,.55)}
 .lobby-grid{display:grid;grid-template-columns:1fr 1fr;gap:0}
 .pagina{background:var(--papel);border:3px solid var(--ink);padding:22px 24px;min-height:400px;color:var(--paper-ink);position:relative}
 .pagina.izq{border-radius:12px 4px 4px 12px;border-right-width:1.5px;box-shadow:inset -28px 0 26px -18px rgba(90,50,20,.6),inset 0 0 22px rgba(120,80,30,.35)}
@@ -84,9 +90,10 @@ button:focus-visible,input:focus-visible{outline:3px solid var(--gold-l);outline
 .pagina .vacio{margin:110px 18px 0;text-align:center;font-style:italic;color:var(--paper-muted);font-size:1.05rem}
 .pagina.der:has(#room-panel:not([hidden])) .vacio{display:none}
 #room-title{font-size:1.8rem;text-align:center;padding-bottom:8px;border-bottom:2px dashed rgba(58,36,16,.35)}
-.cinta{position:absolute;right:-16px;width:34px;height:30px;border:3px solid var(--ink);border-left:none;clip-path:polygon(0 0,100% 0,78% 50%,100% 100%,0 100%);z-index:1}
-.cinta.c1{top:54px;background:#d2553f}
-.cinta.c2{top:96px;background:var(--gold)}
+/* Cintas de marcador: el borde recto queda pegado a la orilla de la página. */
+.cinta{position:absolute;right:-30px;width:36px;height:32px;background:no-repeat 0 0/contain;z-index:1}
+.cinta.c1{top:54px;background-image:url(/assets/ui/cinta-roja.png)}
+.cinta.c2{top:96px;background-image:url(/assets/ui/cinta-dorada.png)}
 @media (max-width:720px){
   .lobby-grid{grid-template-columns:1fr;gap:12px}
   .pagina.izq,.pagina.der{border-radius:12px;border-width:3px;min-height:0;box-shadow:inset 0 0 22px rgba(120,80,30,.4)}
@@ -101,9 +108,11 @@ button:focus-visible,input:focus-visible{outline:3px solid var(--gold-l);outline
 
 /* Resultados: cofre de madera con interior oscuro y título en pergamino. */
 .result{position:absolute;inset:0;display:grid;place-items:center;background:rgba(5,2,8,.72);padding:24px}
-.cofre{position:relative;width:min(460px,100%);border:24px solid transparent;border-image:url(/assets/ui/madera-marco.svg) 36 / 24px stretch;
+.cofre{position:relative;width:min(460px,100%);border:24px solid transparent;border-image:url(/assets/ui/madera-marco.png) 72 / 24px stretch;
   background:#1c1222;background-clip:padding-box;padding:34px 18px 18px;box-shadow:0 18px 50px rgba(0,0,0,.6)}
-.cofre .placa.titulo{position:absolute;left:50%;top:-44px;transform:translateX(-50%);white-space:nowrap;background:var(--papel);color:var(--paper-ink);box-shadow:inset 0 0 0 3px #c99a4e,0 5px 0 rgba(10,5,3,.7)}
+/* Título en rollo de pergamino: solo se estira a lo ancho; los extremos enrollados miden 30 px. */
+.cofre .placa.titulo{position:absolute;left:50%;top:-50px;transform:translateX(-50%);white-space:nowrap;color:var(--paper-ink);
+  height:55px;display:flex;align-items:center;padding:0 14px;border-width:0 30px;border-image:url(/assets/ui/pergamino-rollo.png) 0 60 fill / 0 30px stretch}
 .cofre .placa.titulo h2{color:#6b3a1c;text-shadow:none;margin:0;font-size:1.6rem}
 .cofre .list li{padding:10px 12px;border:2px solid #6b4a36;border-radius:8px;background:#2a1c2c;color:var(--text)}
 .cofre button{margin-top:16px;width:100%}
@@ -117,12 +126,12 @@ button:focus-visible,input:focus-visible{outline:3px solid var(--gold-l);outline
   -webkit-mask:var(--ico) center/contain no-repeat,var(--tiza) 0 0/256px;-webkit-mask-composite:source-in;
   mask:var(--ico) center/contain no-repeat,var(--tiza) 0 0/256px;mask-composite:intersect}
 .ico{display:inline-block;width:30px;height:30px;flex:none;filter:drop-shadow(0 0 4px rgba(0,0,0,.7))}
-.ico-corazon{--ico:url(/assets/ui/tiza-corazon.svg);--c:var(--chalk-hp)}
-.ico-mochila{--ico:url(/assets/ui/tiza-mochila.svg);--c:var(--chalk);width:24px;height:24px}
-.ico-portal{--ico:url(/assets/ui/tiza-portal.svg);--c:var(--chalk-mint);width:26px;height:26px}
-[data-ability="llamar_piedra"]{--ico:url(/assets/ui/tiza-piedra.svg)}
-[data-ability="temblor"]{--ico:url(/assets/ui/tiza-temblor.svg)}
-[data-ability="andanada"]{--ico:url(/assets/ui/tiza-andanada.svg)}
+.ico-corazon{--ico:url(/assets/ui/tiza-corazon.png);--c:var(--chalk-hp)}
+.ico-mochila{--ico:url(/assets/ui/tiza-mochila.png);--c:var(--chalk);width:24px;height:24px}
+.ico-portal{--ico:url(/assets/ui/tiza-portal.png);--c:var(--chalk-mint);width:26px;height:26px}
+[data-ability="llamar_piedra"]{--ico:url(/assets/ui/tiza-piedra.png)}
+[data-ability="temblor"]{--ico:url(/assets/ui/tiza-temblor.png)}
+[data-ability="andanada"]{--ico:url(/assets/ui/tiza-andanada.png)}
 .num,.brujula,.ab-key,.ab-cd,.inv-value,.sync-txt,.toast,.tbtn,.fs-btn{font-family:var(--sketch)}
 
 .hud{position:absolute;left:max(14px,env(safe-area-inset-left));right:max(14px,env(safe-area-inset-right));top:calc(10px + env(safe-area-inset-top));
@@ -164,15 +173,18 @@ button:focus-visible,input:focus-visible{outline:3px solid var(--gold-l);outline
 .abil{position:absolute;left:50%;transform:translateX(-50%);bottom:calc(104px + env(safe-area-inset-bottom));display:flex;gap:12px;pointer-events:none}
 .touch-on .abil{display:none}
 .ab{position:relative;width:66px;height:66px;border-radius:10px;background:radial-gradient(rgba(14,8,16,.7),rgba(14,8,16,.45));display:flex;flex-direction:column;align-items:center;justify-content:flex-end;padding:4px}
-.ab::before{content:"";position:absolute;inset:0;border:3px solid var(--chalk);border-radius:10px}
+/* Recuadro y anillos de tiza: la forma de Astra combinada con el grano; el color sale de --ring. */
+.ab::before{content:"";position:absolute;inset:0;background:var(--ring,var(--chalk));
+  -webkit-mask:url(/assets/ui/tiza-recuadro.png) 0 0/100% 100% no-repeat,var(--tiza) 0 0/256px;-webkit-mask-composite:source-in;
+  mask:url(/assets/ui/tiza-recuadro.png) 0 0/100% 100% no-repeat,var(--tiza) 0 0/256px;mask-composite:intersect}
 .ab.swap{width:86px}
-.ab.swap::before{border-color:var(--chalk-gold)}
+.ab.swap{--ring:var(--chalk-gold)}
 .ab-ico{position:absolute;left:50%;top:44%;width:36px;height:36px;transform:translate(-50%,-50%)}
 .ab-key{position:absolute;top:2px;left:7px;font-weight:700;font-size:.9rem;color:var(--chalk-gold);text-shadow:0 1px 3px #000}
 .ab-name{font-size:.62rem;line-height:1.05;text-align:center;color:var(--chalk-dim);position:relative;text-shadow:0 1px 3px #000}
 .ab-cd{position:absolute;inset:0;border-radius:inherit;pointer-events:none;background:conic-gradient(rgba(8,3,12,.75) calc(var(--p,0)*1turn),transparent 0);display:grid;place-items:center;font-weight:700;font-size:1.25rem;color:#fff;text-shadow:0 0 4px #000}
 .ab[data-ready="false"] .ab-ico,.tbtn[data-ready="false"]::after{opacity:.45}
-.ab[data-ready="false"]::before{border-color:var(--chalk-dim)}
+.ab[data-ready="false"]{--ring:var(--chalk-dim)}
 
 /* Mochila: casillas de tiza; los objetos conservan su color. */
 .inv{position:absolute;left:50%;transform:translateX(-50%);bottom:calc(52px + env(safe-area-inset-bottom));display:flex;align-items:center;gap:10px;
@@ -205,17 +217,18 @@ button:focus-visible,input:focus-visible{outline:3px solid var(--gold-l);outline
 .touch{position:absolute;inset:0;pointer-events:none;touch-action:none;-webkit-user-select:none;user-select:none}
 .touch *{touch-action:none;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
 .stick-zone{position:absolute;left:0;bottom:0;width:48%;height:70%;pointer-events:auto}
-.stick{position:absolute;left:max(24px,calc(env(safe-area-inset-left) + 24px));bottom:calc(28px + env(safe-area-inset-bottom));width:128px;height:128px;border-radius:50%;pointer-events:none;transition:opacity .15s}
-.stick::before{content:"";position:absolute;inset:0;border-radius:50%;border:3px solid var(--chalk);background:rgba(14,8,16,.3)}
+.stick{position:absolute;left:max(24px,calc(env(safe-area-inset-left) + 24px));bottom:calc(28px + env(safe-area-inset-bottom));width:128px;height:128px;border-radius:50%;pointer-events:none;transition:opacity .15s;background:rgba(14,8,16,.3)}
+.stick::before,.tbtn::before{content:"";position:absolute;inset:0;background:var(--ring,var(--chalk));
+  -webkit-mask:url(/assets/ui/tiza-circulo.png) center/104% 104% no-repeat,var(--tiza) 0 0/256px;-webkit-mask-composite:source-in;
+  mask:url(/assets/ui/tiza-circulo.png) center/104% 104% no-repeat,var(--tiza) 0 0/256px;mask-composite:intersect}
 .stick.active{transition:none}
 .knob{position:absolute;left:39px;top:39px;width:50px;height:50px;border-radius:50%;background:rgba(255,211,106,.4);border:3px solid var(--chalk-gold)}
 .tbtns{position:absolute;right:max(24px,calc(env(safe-area-inset-right) + 24px));bottom:calc(30px + env(safe-area-inset-bottom));display:flex;flex-direction:column;align-items:flex-end;gap:14px;pointer-events:auto}
 .tbtn{position:relative;border-radius:50%;background:radial-gradient(rgba(14,8,16,.65),rgba(14,8,16,.35));border:none;color:var(--chalk);font-weight:700;font-size:.78rem;
   display:flex;flex-direction:column;align-items:center;justify-content:flex-end;padding:0 0 6px;overflow:hidden;cursor:pointer}
-.tbtn::before{content:"";position:absolute;inset:0;border-radius:50%;border:3px solid var(--ring,var(--chalk))}
 .tbtn::after{content:"";position:absolute;left:50%;top:42%;width:46%;height:46%;transform:translate(-50%,-50%)}
-.tbtn.atk{width:84px;height:84px;--ring:var(--chalk-gold);--c:var(--chalk-gold);--ico:url(/assets/ui/tiza-atacar.svg);color:var(--chalk-gold)}
-.tbtn.use{width:52px;height:52px;--ring:var(--rune);--c:#ffb0ec;--ico:url(/assets/ui/tiza-usar.svg);color:#ffb0ec;font-size:.68rem}
+.tbtn.atk{width:84px;height:84px;--ring:var(--chalk-gold);--c:var(--chalk-gold);--ico:url(/assets/ui/tiza-atacar.png);color:var(--chalk-gold)}
+.tbtn.use{width:52px;height:52px;--ring:var(--rune);--c:#ffb0ec;--ico:url(/assets/ui/tiza-usar.png);color:#ffb0ec;font-size:.68rem}
 .fs-btn{position:absolute;top:calc(10px + env(safe-area-inset-top));right:max(12px,env(safe-area-inset-right));pointer-events:auto;padding:6px 10px;font-size:.9rem;
   background:rgba(14,8,16,.6);color:var(--chalk);border:2px solid var(--chalk-dim);border-radius:8px}
 .tring{position:relative;width:220px;height:200px;pointer-events:none}
@@ -227,7 +240,7 @@ button:focus-visible,input:focus-visible{outline:3px solid var(--gold-l);outline
 #t-q{right:104px;bottom:6px}
 #t-e{right:92px;bottom:76px}
 #t-r{right:28px;bottom:112px}
-#t-swap{right:150px;bottom:110px;width:46px;height:46px;font-size:0;--ring:var(--chalk-gold);--c:var(--chalk-gold);--ico:url(/assets/ui/tiza-cambiar.svg)!important}
+#t-swap{right:150px;bottom:110px;width:46px;height:46px;font-size:0;--ring:var(--chalk-gold);--c:var(--chalk-gold);--ico:url(/assets/ui/tiza-cambiar.png)!important}
 .tbtns .use{margin-right:150px;margin-bottom:-60px}
 
 /* Pantallas angostas: la fase y el tiempo bajan a su propia fila y las hojas se encogen. */
@@ -250,7 +263,7 @@ button:focus-visible,input:focus-visible{outline:3px solid var(--gold-l);outline
 .equipo header b{font-family:var(--display);font-size:1.15rem;color:var(--paper-ink)}
 .equipo .chip{width:14px;height:14px;border-radius:50%;background:var(--team);border:2px solid var(--ink);flex:none}
 .equipo .cupo{color:var(--paper-muted);font-weight:700;font-size:.85rem;margin-right:auto}
-.pagina .equipo button.mini{padding:3px 10px;font-size:.82rem;border-width:2px;box-shadow:0 3px 0 var(--ink)}
+.pagina .equipo button.mini{padding:3px 10px;font-size:.82rem;--btn-w:9px}
 .pagina .equipo .list{margin-top:6px;gap:5px}
 .pagina .equipo .list li{padding:5px 9px;font-size:.95rem;background:rgba(255,250,235,.6)}
 .pagina .equipo .list li.libre{justify-content:center;font-style:italic;color:var(--paper-muted);border-style:dashed;background:none}
@@ -275,7 +288,7 @@ button:focus-visible,input:focus-visible{outline:3px solid var(--gold-l);outline
 .panel-screen .hoja h3.sep{margin-top:16px;padding-top:12px;border-top:2px dashed rgba(58,36,16,.35)}
 .hoja .list li,.pagina .list li{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:8px 11px;border:2px solid rgba(58,36,16,.6);border-radius:8px;background:rgba(255,250,235,.5);font-weight:500;color:var(--paper-ink)}
 .hoja .list li.libre{justify-content:center;font-style:italic;color:var(--paper-muted);border-style:dashed;background:none}
-.panel-screen button.mini{padding:4px 11px;font-size:.85rem;border-width:2px;box-shadow:0 3px 0 var(--ink)}
+.panel-screen button.mini{padding:4px 11px;font-size:.85rem;--btn-w:9px}
 
 .campamento{display:grid;grid-template-columns:1fr 330px;gap:16px;align-items:start;position:relative}
 .escena{position:relative;border:4px solid var(--ink);border-radius:18px;overflow:hidden;box-shadow:inset 0 0 0 3px #8a5634,0 10px 0 #120a06,0 24px 50px rgba(0,0,0,.55);background:#120a1a}
@@ -285,7 +298,7 @@ button:focus-visible,input:focus-visible{outline:3px solid var(--gold-l);outline
 .despliegue .mapa{margin:0;color:#f1e3c0;font-size:.95rem;text-shadow:0 2px 0 var(--ink),0 0 8px #000}
 .despliegue .mapa b{font-family:var(--display);color:var(--gold-l);font-size:1.15rem}
 .despliegue .cola{margin:0;min-height:1.3em;color:var(--chalk-mint);font-family:var(--sketch);font-size:1.05rem;text-shadow:0 0 6px #000,0 2px 0 #000}
-.panel-screen button.grande{font-size:1.45rem;padding:14px 34px;border-radius:14px;letter-spacing:.02em;font-family:var(--display);box-shadow:0 6px 0 var(--ink),inset 0 2px 0 rgba(255,255,255,.35)}
+.panel-screen button.grande{font-size:1.45rem;padding:14px 34px;border-radius:14px;letter-spacing:.02em;font-family:var(--display);--btn-w:16px}
 .panel-screen #deploy-btn[data-state="searching"]:not(:disabled){background:linear-gradient(#d0644f,#9c3a2c)}
 .escuadra .codigo{margin:0 0 10px;color:var(--paper-ink);display:flex;align-items:center;gap:8px}
 .escuadra .codigo b{font:700 1.35rem var(--sketch);letter-spacing:.12em;color:#6b3a1c}
@@ -360,4 +373,4 @@ button:focus-visible,input:focus-visible{outline:3px solid var(--gold-l);outline
 [data-ability="abanico"]{--ico:url(/assets/ui/tiza-abanico.svg)}
 [data-ability="llamarada"]{--ico:url(/assets/ui/tiza-llamarada.svg)}
 [data-ability="lanzamiento"]{--ico:url(/assets/ui/tiza-lanzamiento.svg)}
-[data-ability="siega"]{--ico:url(/assets/ui/tiza-siega.svg)}
+[data-ability="siega"]{--ico:url(/assets/ui/tiza-barrido.png)}

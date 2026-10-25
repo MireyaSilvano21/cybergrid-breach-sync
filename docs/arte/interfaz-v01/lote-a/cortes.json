@@ -1,0 +1,65 @@
+{
+  "orden": [
+    "izquierda",
+    "arriba",
+    "derecha",
+    "abajo"
+  ],
+  "unidades": "px",
+  "archivos": {
+    "madera-marco.png": [
+      72,
+      72,
+      72,
+      72
+    ],
+    "placa-verde.png": [
+      40,
+      40,
+      40,
+      40
+    ],
+    "placa-madera.png": [
+      40,
+      40,
+      40,
+      40
+    ],
+    "boton-hoja.png": [
+      32,
+      32,
+      32,
+      32
+    ],
+    "boton-hoja-presionado.png": [
+      32,
+      32,
+      32,
+      32
+    ],
+    "boton-madera.png": [
+      32,
+      32,
+      32,
+      32
+    ],
+    "boton-madera-presionado.png": [
+      32,
+      32,
+      32,
+      32
+    ],
+    "boton-dorado.png": [
+      32,
+      32,
+      32,
+      32
+    ],
+    "pergamino-rollo.png": [
+      60,
+      0,
+      60,
+      0
+    ]
+  }
+}

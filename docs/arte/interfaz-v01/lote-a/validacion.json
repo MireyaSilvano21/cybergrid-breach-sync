@@ -1,0 +1,433 @@
+{
+  "proyecto": "CyberGrid: Breach & Sync",
+  "lote": "A",
+  "version": "v01",
+  "cantidad_png_principales": 15,
+  "archivos": [
+    {
+      "archivo": "madera-marco.png",
+      "dimensiones": [
+        240,
+        240
+      ],
+      "modo": "RGBA",
+      "sha256": "a2f5e778d75d1545e44ed92a81bb76696e1eae1bb128e1ecd1bfab2470b3d237",
+      "operaciones_exportacion": [
+        "Recorte del margen transparente y exportación al lienzo final."
+      ],
+      "dimension_correcta": true,
+      "alpha_min": 0,
+      "alpha_max": 255,
+      "cortes_izquierda_arriba_derecha_abajo": [
+        72,
+        72,
+        72,
+        72
+      ],
+      "centro_transparente": true,
+      "pruebas_escalado": [
+        [
+          240,
+          240
+        ],
+        [
+          360,
+          288
+        ],
+        [
+          480,
+          336
+        ]
+      ],
+      "esquinas_sin_deformacion": true
+    },
+    {
+      "archivo": "pergamino.png",
+      "dimensiones": [
+        512,
+        512
+      ],
+      "modo": "RGB",
+      "sha256": "ca69915bae000c962d8f14d4384cc0c051217d1d5e7c6b43b0268123a908e892",
+      "operaciones_exportacion": [
+        "Exportación de textura mediante cuatro cuadrantes reflejados; bordes opuestos idénticos."
+      ],
+      "dimension_correcta": true,
+      "alpha_min": 255,
+      "alpha_max": 255,
+      "bordes_opuestos_identicos": true
+    },
+    {
+      "archivo": "cuero-verde.png",
+      "dimensiones": [
+        512,
+        512
+      ],
+      "modo": "RGB",
+      "sha256": "60b6e1f2e2d81a32078bdac62c4478769c39b46298d49bbae67e0ae0ed3b1a9a",
+      "operaciones_exportacion": [
+        "Exportación de textura mediante cuatro cuadrantes reflejados; bordes opuestos idénticos."
+      ],
+      "dimension_correcta": true,
+      "alpha_min": 255,
+      "alpha_max": 255,
+      "bordes_opuestos_identicos": true
+    },
+    {
+      "archivo": "cuero-cafe.png",
+      "dimensiones": [
+        512,
+        512
+      ],
+      "modo": "RGB",
+      "sha256": "7d197bf34f0385fb8320925d14b2686372bfd3334ab63a34edbb7134a5617d37",
+      "operaciones_exportacion": [
+        "Exportación de textura mediante cuatro cuadrantes reflejados; bordes opuestos idénticos."
+      ],
+      "dimension_correcta": true,
+      "alpha_min": 255,
+      "alpha_max": 255,
+      "bordes_opuestos_identicos": true
+    },
+    {
+      "archivo": "hojas.png",
+      "dimensiones": [
+        340,
+        240
+      ],
+      "modo": "RGBA",
+      "sha256": "254e3bba8419ccd20d2919981817875e242936a8354a4c4be116efeee37ee5ab",
+      "operaciones_exportacion": [
+        "Recorte del margen transparente y exportación al lienzo final."
+      ],
+      "dimension_correcta": true,
+      "alpha_min": 0,
+      "alpha_max": 255
+    },
+    {
+      "archivo": "placa-verde.png",
+      "dimensiones": [
+        360,
+        120
+      ],
+      "modo": "RGBA",
+      "sha256": "8a9fdd3155675620a698eff46d8b88cfac718890a4921374a291e8cebb8af477",
+      "operaciones_exportacion": [
+        "Recorte del margen transparente y exportación al lienzo final."
+      ],
+      "dimension_correcta": true,
+      "alpha_min": 0,
+      "alpha_max": 255,
+      "cortes_izquierda_arriba_derecha_abajo": [
+        40,
+        40,
+        40,
+        40
+      ],
+      "pruebas_escalado": [
+        [
+          360,
+          120
+        ],
+        [
+          540,
+          144
+        ],
+        [
+          720,
+          168
+        ]
+      ],
+      "esquinas_sin_deformacion": true
+    },
+    {
+      "archivo": "placa-madera.png",
+      "dimensiones": [
+        360,
+        120
+      ],
+      "modo": "RGBA",
+      "sha256": "42bb8574b1d7e48bacb8bd49f5679aca28cf8d6ddd05088cdc17439a256dce27",
+      "operaciones_exportacion": [
+        "Recorte del margen transparente y exportación al lienzo final."
+      ],
+      "dimension_correcta": true,
+      "alpha_min": 0,
+      "alpha_max": 255,
+      "cortes_izquierda_arriba_derecha_abajo": [
+        40,
+        40,
+        40,
+        40
+      ],
+      "pruebas_escalado": [
+        [
+          360,
+          120
+        ],
+        [
+          540,
+          144
+        ],
+        [
+          720,
+          168
+        ]
+      ],
+      "esquinas_sin_deformacion": true
+    },
+    {
+      "archivo": "boton-hoja.png",
+      "dimensiones": [
+        240,
+        96
+      ],
+      "modo": "RGBA",
+      "sha256": "e5109bb098a86b6064c5b245ea40aa197a027b9fc48fb9dc13b50276b3888495",
+      "operaciones_exportacion": [
+        "Recorte del margen transparente y exportación al lienzo final."
+      ],
+      "dimension_correcta": true,
+      "alpha_min": 0,
+      "alpha_max": 255,
+      "cortes_izquierda_arriba_derecha_abajo": [
+        32,
+        32,
+        32,
+        32
+      ],
+      "pruebas_escalado": [
+        [
+          240,
+          96
+        ],
+        [
+          360,
+          120
+        ],
+        [
+          480,
+          144
+        ]
+      ],
+      "esquinas_sin_deformacion": true
+    },
+    {
+      "archivo": "boton-hoja-presionado.png",
+      "dimensiones": [
+        240,
+        96
+      ],
+      "modo": "RGBA",
+      "sha256": "c96bfdb47497ce4b962a1215af7c1c2057204d61a81d112a4ed3fe214a775075",
+      "operaciones_exportacion": [
+        "Recorte del margen transparente y exportación al lienzo final."
+      ],
+      "dimension_correcta": true,
+      "alpha_min": 0,
+      "alpha_max": 255,
+      "cortes_izquierda_arriba_derecha_abajo": [
+        32,
+        32,
+        32,
+        32
+      ],
+      "pruebas_escalado": [
+        [
+          240,
+          96
+        ],
+        [
+          360,
+          120
+        ],
+        [
+          480,
+          144
+        ]
+      ],
+      "esquinas_sin_deformacion": true
+    },
+    {
+      "archivo": "boton-madera.png",
+      "dimensiones": [
+        240,
+        96
+      ],
+      "modo": "RGBA",
+      "sha256": "018214a79ce5dc02c9a72f92e9317ab601e27ce7b9ade801405edb3630446900",
+      "operaciones_exportacion": [
+        "Recorte del margen transparente y exportación al lienzo final."
+      ],
+      "dimension_correcta": true,
+      "alpha_min": 0,
+      "alpha_max": 255,
+      "cortes_izquierda_arriba_derecha_abajo": [
+        32,
+        32,
+        32,
+        32
+      ],
+      "pruebas_escalado": [
+        [
+          240,
+          96
+        ],
+        [
+          360,
+          120
+        ],
+        [
+          480,
+          144
+        ]
+      ],
+      "esquinas_sin_deformacion": true
+    },
+    {
+      "archivo": "boton-madera-presionado.png",
+      "dimensiones": [
+        240,
+        96
+      ],
+      "modo": "RGBA",
+      "sha256": "d6fdbad71f0228c88b82ddc72ddec453236c02f85f00c05463b542052b44dfcb",
+      "operaciones_exportacion": [
+        "Recorte del margen transparente y exportación al lienzo final."
+      ],
+      "dimension_correcta": true,
+      "alpha_min": 0,
+      "alpha_max": 255,
+      "cortes_izquierda_arriba_derecha_abajo": [
+        32,
+        32,
+        32,
+        32
+      ],
+      "pruebas_escalado": [
+        [
+          240,
+          96
+        ],
+        [
+          360,
+          120
+        ],
+        [
+          480,
+          144
+        ]
+      ],
+      "esquinas_sin_deformacion": true
+    },
+    {
+      "archivo": "boton-dorado.png",
+      "dimensiones": [
+        240,
+        96
+      ],
+      "modo": "RGBA",
+      "sha256": "1f1cc3bbf995943cda3fbfd2e4df698a77d2e1a637b0261e13ce182c2ecf548c",
+      "operaciones_exportacion": [
+        "Recorte del margen transparente y exportación al lienzo final."
+      ],
+      "dimension_correcta": true,
+      "alpha_min": 0,
+      "alpha_max": 255,
+      "cortes_izquierda_arriba_derecha_abajo": [
+        32,
+        32,
+        32,
+        32
+      ],
+      "pruebas_escalado": [
+        [
+          240,
+          96
+        ],
+        [
+          360,
+          120
+        ],
+        [
+          480,
+          144
+        ]
+      ],
+      "esquinas_sin_deformacion": true
+    },
+    {
+      "archivo": "cinta-roja.png",
+      "dimensiones": [
+        72,
+        64
+      ],
+      "modo": "RGBA",
+      "sha256": "cdd66b3452a6bd1e8a1b3cf0481278206d668b332e577396951392237a3f01e7",
+      "operaciones_exportacion": [
+        "Recorte del margen transparente y exportación al lienzo final."
+      ],
+      "dimension_correcta": true,
+      "alpha_min": 0,
+      "alpha_max": 255
+    },
+    {
+      "archivo": "cinta-dorada.png",
+      "dimensiones": [
+        72,
+        64
+      ],
+      "modo": "RGBA",
+      "sha256": "508915939f5cb943287c2dad132bd5838f541637f9c3e77ca5868b4d9e950840",
+      "operaciones_exportacion": [
+        "Recorte del margen transparente y exportación al lienzo final."
+      ],
+      "dimension_correcta": true,
+      "alpha_min": 0,
+      "alpha_max": 255
+    },
+    {
+      "archivo": "pergamino-rollo.png",
+      "dimensiones": [
+        420,
+        110
+      ],
+      "modo": "RGBA",
+      "sha256": "3cef60dd22ec7ae658166f37e37ede05ca3d4ebdc11c0595fe428fd2ac8dfde2",
+      "operaciones_exportacion": [
+        "Recorte del margen transparente y exportación al lienzo final."
+      ],
+      "dimension_correcta": true,
+      "alpha_min": 0,
+      "alpha_max": 255,
+      "cortes_izquierda_arriba_derecha_abajo": [
+        60,
+        0,
+        60,
+        0
+      ],
+      "pruebas_escalado": [
+        [
+          420,
+          110
+        ],
+        [
+          600,
+          110
+        ],
+        [
+          780,
+          110
+        ]
+      ],
+      "esquinas_sin_deformacion": true
+    }
+  ],
+  "criterios_visuales": "Revisión visual en QA; los valores de píxeles y hashes corresponden a los PNG exportados. No implica aprobación del cliente.",
+  "herramienta_creacion": "ImageGen integrado; un diseño por generación. Exportación técnica con Pillow.",
+  "notas": [
+    "Las láminas QA incluyen texto de identificación; los PNG de juego no contienen texto.",
+    "Texturas montadas con cuadrantes reflejados: repetición continua con simetría visible al inspeccionar el patrón.",
+    "El color de tinta sigue visualmente la referencia ciruela; no se ha reemplazado cada píxel de tinta por un único RGB exacto."
+  ]
+}
