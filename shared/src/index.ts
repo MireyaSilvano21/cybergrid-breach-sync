@@ -13,3 +13,4 @@ export * from './lagcomp';
 export * from './prediction';
 export * from './templates';
 export * from './abilities';
+export * from './rig';

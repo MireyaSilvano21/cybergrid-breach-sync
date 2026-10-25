@@ -4,7 +4,11 @@ import { fileURLToPath } from 'node:url';
 export default defineConfig({
   root: 'client',
   resolve: { alias: { '@shared': fileURLToPath(new URL('./shared/src', import.meta.url)) } },
-  build: { outDir: '../dist/public', emptyOutDir: true },
+  build: {
+    outDir: '../dist/public', emptyOutDir: true,
+    // Segunda página: visor del esqueleto de personajes (/rig.html).
+    rollupOptions: { input: { main: fileURLToPath(new URL('./client/index.html', import.meta.url)), rig: fileURLToPath(new URL('./client/rig.html', import.meta.url)) } },
+  },
   server: {
     port: 5173,
     proxy: {
