@@ -76,46 +76,60 @@ export const DASH_MUL = dashMulFor(4);
 
 const P = (speed: number, radius: number, extra: Partial<ProjectileDef> = {}): ProjectileDef => ({ speed, radius, ...extra });
 
+/**
+ * Los 10 Focos (armas). Cada uno tiene su básico y su Inscripción (R). Diseños de referencia del
+ * equipo; el arte final se pedirá con el mismo id.
+ */
 export const FOCOS: Record<string, FocoDef> = {
-  vara: {
-    id: 'vara', name: 'Vara de Fresno', desc: 'Golpe en arco frente a ti.', melee: true, color: '#c98a4a', rgb: '255,190,90',
-    basic: { shape: { type: 'cono', range: 1.7, angle: 110 }, delivery: 'instante', dmg: 16, intervalMs: 450, reloadMs: 1100 },
-    insc: { id: 'barrido', name: 'Barrido', desc: 'Giro que golpea y empuja a todos alrededor.', shape: { type: 'propio', range: 0, radius: 2.5 }, delivery: 'instante', cd: 10, effect: { dmg: 18, knock: 2 }, rgb: '255,190,90' },
+  daga: {
+    id: 'daga', name: 'Daga Carmesí', desc: 'Cortes cortos y muy rápidos.', melee: true, color: '#c8323c', rgb: '255,90,90',
+    basic: { shape: { type: 'cono', range: 1.3, angle: 80 }, delivery: 'instante', dmg: 9, intervalMs: 240, reloadMs: 700 },
+    insc: { id: 'abanico', name: 'Abanico de dagas', desc: 'Lanza tres dagas en abanico.', shape: { type: 'cono', range: 5, angle: 30 }, delivery: 'proyectil', cd: 9, effect: { dmg: 9 }, projectile: P(1000, 9, { count: 3, spreadDeg: 30 }), rgb: '255,90,90' },
   },
-  anillo: {
-    id: 'anillo', name: 'Anillo de Ámbar', desc: 'Disparo de ámbar a distancia.', melee: false, color: '#ffb347', rgb: '255,180,70',
-    basic: { shape: { type: 'linea', range: 7, width: 0.35 }, delivery: 'proyectil', dmg: 10, intervalMs: 320, reloadMs: 900, projectile: P(950, 10) },
-    insc: { id: 'andanada', name: 'Andanada', desc: 'Cinco proyectiles en abanico.', shape: { type: 'cono', range: 8, angle: 40 }, delivery: 'proyectil', cd: 10, effect: { dmg: 7 }, projectile: P(900, 8, { count: 5, spreadDeg: 40 }), rgb: '255,180,70' },
+  llama: {
+    id: 'llama', name: 'Hoja de Llama', desc: 'Latigazo de fuego largo y estrecho.', melee: true, color: '#ffb347', rgb: '255,180,60',
+    basic: { shape: { type: 'cono', range: 3, angle: 28 }, delivery: 'instante', dmg: 13, intervalMs: 520, reloadMs: 1150 },
+    insc: { id: 'llamarada', name: 'Llamarada', desc: 'Ola de fuego que atraviesa y ralentiza.', shape: { type: 'linea', range: 6.5, width: 1.1 }, delivery: 'proyectil', cd: 11, effect: { dmg: 16, slowMs: 1200 }, projectile: P(750, 30, { pierce: true }), rgb: '255,180,60' },
+  },
+  cetro_lunar: {
+    id: 'cetro_lunar', name: 'Cetro Lunar', desc: 'Esfera de luz lunar.', melee: false, color: '#d8a8f0', rgb: '230,160,255',
+    basic: { shape: { type: 'linea', range: 6.5, width: 0.45 }, delivery: 'proyectil', dmg: 10, intervalMs: 420, reloadMs: 1050, projectile: P(750, 13) },
+    insc: { id: 'vinculo', name: 'Vínculo', desc: 'Área que cura a tus aliados (y a ti).', shape: { type: 'zona', range: 6, radius: 2.5 }, delivery: 'instante', cd: 13, effect: { heal: 30 }, targets: 'aliados', rgb: '230,160,255' },
+  },
+  lanza: {
+    id: 'lanza', name: 'Lanza Ígnea', desc: 'Estocada en línea de largo alcance.', melee: true, color: '#e8732a', rgb: '255,140,50',
+    basic: { shape: { type: 'linea', range: 2.6, width: 0.6 }, delivery: 'instante', dmg: 17, intervalMs: 600, reloadMs: 1300 },
+    insc: { id: 'lanzamiento', name: 'Lanzamiento', desc: 'Arroja la lanza: atraviesa a todos en su línea.', shape: { type: 'linea', range: 9, width: 0.4 }, delivery: 'proyectil', cd: 11, effect: { dmg: 20 }, projectile: P(1300, 12, { pierce: true }), rgb: '255,140,50' },
+  },
+  guadana: {
+    id: 'guadana', name: 'Guadaña de Rosas', desc: 'Arco muy amplio y lento.', melee: true, color: '#e8e8f0', rgb: '255,80,110',
+    basic: { shape: { type: 'cono', range: 2.2, angle: 170 }, delivery: 'instante', dmg: 18, intervalMs: 700, reloadMs: 1450 },
+    insc: { id: 'siega', name: 'Siega', desc: 'Giro que daña y atrae a los rivales hacia ti.', shape: { type: 'propio', range: 0, radius: 3 }, delivery: 'instante', cd: 12, effect: { dmg: 12, knock: -1.6 }, rgb: '255,80,110' },
+  },
+  gemelas: {
+    id: 'gemelas', name: 'Espadas Gemelas', desc: 'Dos hojas: golpes rápidos al frente.', melee: true, color: '#a8c0ff', rgb: '180,200,255',
+    basic: { shape: { type: 'cono', range: 1.6, angle: 100 }, delivery: 'instante', dmg: 11, intervalMs: 300, reloadMs: 850 },
+    insc: { id: 'corte', name: 'Corte espectral', desc: 'Embestida corta que corta a quien atraviesa.', shape: { type: 'salto', range: 3.5 }, delivery: 'embestida', cd: 9, effect: { dmg: 16 }, rgb: '180,200,255' },
   },
   martillo: {
-    id: 'martillo', name: 'Martillo de Basalto', desc: 'Golpe pesado y amplio, lento.', melee: true, color: '#7c7d8c', rgb: '255,140,60',
+    id: 'martillo', name: 'Martillo de Rosa', desc: 'Golpe pesado y amplio, lento.', melee: true, color: '#f0a890', rgb: '255,170,140',
     basic: { shape: { type: 'cono', range: 1.9, angle: 130 }, delivery: 'instante', dmg: 24, intervalMs: 750, reloadMs: 1500 },
-    insc: { id: 'fractura', name: 'Fractura', desc: 'Grieta que avanza en línea, atraviesa y ralentiza.', shape: { type: 'linea', range: 6, width: 1.2 }, delivery: 'proyectil', cd: 11, effect: { dmg: 14, slowMs: 1600 }, projectile: P(620, 34, { pierce: true }), rgb: '255,140,60' },
+    insc: { id: 'fractura', name: 'Fractura', desc: 'Grieta que avanza en línea, atraviesa y ralentiza.', shape: { type: 'linea', range: 6, width: 1.2 }, delivery: 'proyectil', cd: 11, effect: { dmg: 14, slowMs: 1600 }, projectile: P(620, 34, { pierce: true }), rgb: '255,170,140' },
   },
-  daga: {
-    id: 'daga', name: 'Daga de Ceniza', desc: 'Cortes cortos y muy rápidos.', melee: true, color: '#9a8aa8', rgb: '210,170,255',
-    basic: { shape: { type: 'cono', range: 1.3, angle: 80 }, delivery: 'instante', dmg: 9, intervalMs: 240, reloadMs: 700 },
-    insc: { id: 'corte', name: 'Corte espectral', desc: 'Embestida corta que corta a quien atraviesa.', shape: { type: 'salto', range: 3.5 }, delivery: 'embestida', cd: 9, effect: { dmg: 16 }, rgb: '210,170,255' },
+  cetro_rubi: {
+    id: 'cetro_rubi', name: 'Cetro de Rubí', desc: 'Disparo de rubí a media distancia.', melee: false, color: '#d0303c', rgb: '255,70,80',
+    basic: { shape: { type: 'linea', range: 7.5, width: 0.4 }, delivery: 'proyectil', dmg: 12, intervalMs: 500, reloadMs: 1200, projectile: P(850, 11) },
+    insc: { id: 'grieta', name: 'Grieta', desc: 'Área a distancia que daña y ralentiza.', shape: { type: 'zona', range: 7, radius: 2 }, delivery: 'instante', cd: 12, effect: { dmg: 14, slowMs: 2000 }, rgb: '255,70,80' },
+  },
+  revolver: {
+    id: 'revolver', name: 'Revólver Arcano', desc: 'Balas muy rápidas de poco daño.', melee: false, color: '#f0f0ff', rgb: '170,200,255',
+    basic: { shape: { type: 'linea', range: 8, width: 0.25 }, delivery: 'proyectil', dmg: 9, intervalMs: 220, reloadMs: 800, projectile: P(1400, 7) },
+    insc: { id: 'andanada', name: 'Vaciar el tambor', desc: 'Seis balas en abanico.', shape: { type: 'cono', range: 7, angle: 36 }, delivery: 'proyectil', cd: 10, effect: { dmg: 6 }, projectile: P(1300, 7, { count: 6, spreadDeg: 36 }), rgb: '170,200,255' },
   },
   arco: {
-    id: 'arco', name: 'Arco de Fresno', desc: 'Flecha de largo alcance.', melee: false, color: '#8a6a3c', rgb: '255,230,150',
+    id: 'arco', name: 'Arco Alado', desc: 'Flecha de largo alcance.', melee: false, color: '#f4f0e0', rgb: '255,250,230',
     basic: { shape: { type: 'linea', range: 9, width: 0.3 }, delivery: 'proyectil', dmg: 15, intervalMs: 600, reloadMs: 1400, projectile: P(1150, 8) },
-    insc: { id: 'lluvia', name: 'Lluvia de flechas', desc: 'Área a distancia que daña a todos dentro.', shape: { type: 'zona', range: 8, radius: 2.2 }, delivery: 'instante', cd: 12, effect: { dmg: 18 }, rgb: '255,230,150' },
-  },
-  orbe: {
-    id: 'orbe', name: 'Orbe de Hilo', desc: 'Esfera lenta y grande, fácil de acertar.', melee: false, color: '#8fae84', rgb: '140,255,170',
-    basic: { shape: { type: 'linea', range: 6, width: 0.45 }, delivery: 'proyectil', dmg: 9, intervalMs: 400, reloadMs: 1000, projectile: P(700, 14) },
-    insc: { id: 'vinculo', name: 'Vínculo', desc: 'Área que cura a tus aliados (y a ti).', shape: { type: 'zona', range: 6, radius: 2.5 }, delivery: 'instante', cd: 13, effect: { heal: 30 }, targets: 'aliados', rgb: '140,255,170' },
-  },
-  campana: {
-    id: 'campana', name: 'Campana del Viento', desc: 'Onda corta y ancha.', melee: false, color: '#7fd6e0', rgb: '150,230,255',
-    basic: { shape: { type: 'cono', range: 3, angle: 70 }, delivery: 'instante', dmg: 12, intervalMs: 550, reloadMs: 1200 },
-    insc: { id: 'eco', name: 'Eco', desc: 'Repique que daña y aleja a quien esté cerca.', shape: { type: 'propio', range: 0, radius: 3 }, delivery: 'instante', cd: 11, effect: { dmg: 8, knock: 2.5 }, rgb: '150,230,255' },
-  },
-  grimorio: {
-    id: 'grimorio', name: 'Grimorio Vacío', desc: 'Página que atraviesa a todos en su línea.', melee: false, color: '#c9a8f0', rgb: '200,150,255',
-    basic: { shape: { type: 'linea', range: 7.5, width: 0.4 }, delivery: 'proyectil', dmg: 11, intervalMs: 500, reloadMs: 1200, projectile: P(820, 12, { pierce: true }) },
-    insc: { id: 'grieta', name: 'Grieta', desc: 'Área a distancia que daña y ralentiza.', shape: { type: 'zona', range: 7, radius: 2 }, delivery: 'instante', cd: 12, effect: { dmg: 14, slowMs: 2000 }, rgb: '200,150,255' },
+    insc: { id: 'lluvia', name: 'Lluvia de flechas', desc: 'Área a distancia que daña a todos dentro.', shape: { type: 'zona', range: 8, radius: 2.2 }, delivery: 'instante', cd: 12, effect: { dmg: 18 }, rgb: '255,250,230' },
   },
 };
 
@@ -136,7 +150,7 @@ export const NOMBRES: Record<string, NombreDef> = {
 
 export interface Build { school: string; nombres: [string, string]; focos: [string, string] }
 /** Build de prueba: Tharvén con un Foco cuerpo a cuerpo y uno a distancia. */
-export const DEFAULT_BUILD: Build = { school: 'tharven', nombres: ['llamar_piedra', 'temblor'], focos: ['vara', 'anillo'] };
+export const DEFAULT_BUILD: Build = { school: 'tharven', nombres: ['llamar_piedra', 'temblor'], focos: ['gemelas', 'revolver'] };
 
 /** Habilidad que corresponde a cada tecla según el build y el Foco en la mano. */
 export function abilityFor(build: Build, foco: 0 | 1, slot: Slot): AbilityDef {
@@ -170,6 +184,12 @@ export function inCone(o: { x: number; y: number }, dirX: number, dirY: number, 
   // El borde del cono se ensancha un poco con el radio del cuerpo, como en Brawl Stars.
   const half = (angleDeg / 2) * (Math.PI / 180) + Math.asin(Math.min(1, bodyR / d));
   return dot >= Math.cos(Math.min(Math.PI, half));
+}
+
+/** ¿Está el punto dentro de la línea (estocada)? Largo y ancho en casillas, más el radio del cuerpo. */
+export function inLine(o: { x: number; y: number }, dirX: number, dirY: number, p: { x: number; y: number }, rangeTiles: number, widthTiles: number, bodyR = PLAYER.radius): boolean {
+  const dx = p.x - o.x, dy = p.y - o.y, along = dx * dirX + dy * dirY, across = Math.abs(-dx * dirY + dy * dirX);
+  return along >= -bodyR && along <= rangeTiles * TILE + bodyR && across <= (widthTiles * TILE) / 2 + bodyR;
 }
 
 /** Destino del parpadeo: avanza en pasos cortos y se detiene antes del primer obstáculo (no atraviesa muros). */

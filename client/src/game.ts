@@ -12,7 +12,7 @@ import { Sprites, isDeepWall, drawDiagWall, drawThinCracks, drawCover, drawBars,
 import { drawCharacter } from './rig';
 
 interface Remote { id: string; name: string; buf: TimedPosition[]; hp: number; ax: number; ay: number; atk: boolean; seen: number; lx: number; ly: number; walk: number; flash: number; foco?: string; slow?: boolean; root?: boolean; invis?: boolean; rev?: boolean; team?: number; swingAt: number; shotAt: number; castAt: number; mv: number; drawT: number }
-interface Fx { kind: string; x: number; y: number; dx?: number; dy?: number; r?: number; x2?: number; y2?: number; ang?: number; rgb?: string; t0: number; dur: number }
+interface Fx { kind: string; x: number; y: number; dx?: number; dy?: number; r?: number; x2?: number; y2?: number; ang?: number; w?: number; rgb?: string; t0: number; dur: number }
 /** Disparo propio predicho: se dibuja desde que sale, sin esperar al servidor. */
 interface MyShot { n: number; kind: string; x0: number; y0: number; dx: number; dy: number; speed: number; radius: number; range: number; t0: number; seen: boolean; dead: boolean; pierce: boolean }
 type ChestKind = 'forja' | 'sarcofago' | 'ornamentado' | 'relicario';
@@ -27,6 +27,27 @@ const CHEST_ART: Record<ChestKind, { size: number; rgb: string }> = {
 };
 const CHEST_FILE = { closed: 'cerrado', open: 'abierto', empty: 'vacio' } as const;
 const CHUNK_PX = CHUNK * TILE;
+/**
+ * Luces precalculadas: un degradado radial dibujado una vez en un lienzo pequeño y luego estirado
+ * con drawImage. En el móvil es mucho más barato que crear un degradado por luz en cada cuadro.
+ */
+const lightCache = new Map<string, HTMLCanvasElement>();
+function lightSprite(key: string, stops: [number, string][]): HTMLCanvasElement {
+  let c = lightCache.get(key);
+  if (!c) {
+    c = document.createElement('canvas'); c.width = c.height = 128;
+    const g = c.getContext('2d')!, gr = g.createRadialGradient(64, 64, 0, 64, 64, 64);
+    for (const [k, col] of stops) gr.addColorStop(k, col);
+    g.fillStyle = gr; g.fillRect(0, 0, 128, 128); lightCache.set(key, c);
+  }
+  return c;
+}
+const HOLE = () => lightSprite('hole', [[0, 'rgba(0,0,0,1)'], [0.5, 'rgba(0,0,0,.8)'], [1, 'rgba(0,0,0,0)']]);
+const TINT = (c: string, a: number) => lightSprite(`${c}|${a}`, [[0, `rgba(${c},${a})`], [1, `rgba(${c},0)`]]);
+/** Si el juego baja de este ritmo, se reduce la resolución de dibujo (y sube cuando se recupera). */
+const LOW_FPS = 45, HIGH_FPS = 57;
+/** Medición de tiempos por sección del dibujo (solo con ?perf en la dirección). */
+const PERF = typeof location !== 'undefined' && location.search.includes('perf');
 /** Color de la faja si no se conoce el equipo (partidas sin equipos). */
 const TEAM_ME = '#ffb347', TEAM_OTHER = '#9a6bff';
 const teamColor = (t: number | undefined, fallback: string) => (t != null && TEAMS[t] ? TEAMS[t].color : fallback);
@@ -64,6 +85,11 @@ export class Game {
   private wallKeys: Int16Array;
   private decor: Decor[];
   private dark = document.createElement('canvas');
+  private vignette = document.createElement('canvas');
+  /** Resolución de la capa de oscuridad respecto al lienzo (1/2 en PC, 1/3 en táctil). */
+  private darkK = 0.5;
+  /** Calidad de dibujo (1 = completa); baja sola si el dispositivo no alcanza 45 FPS. */
+  private quality = 1; private qAcc = 0; private qN = 0; private qHigh = 0;
   private embers: { x: number; y: number; vx: number; vy: number; l: number; c: string }[] = [];
   private sparks: { x: number; y: number; vx: number; vy: number; l: number }[] = [];
   private shake = 0; private hurtAt = -1e9; private walk = 0; private moveAmt = 0;
@@ -173,9 +199,13 @@ export class Game {
     // Efectos de habilidades de otros jugadores (las propias ya se dibujaron al lanzarlas).
     this.offs.push(net.on('fx', (m) => {
       if (m.by === this.myId) return;
-      this.addFx(m.kind, m.x, m.y, { dx: m.dx, dy: m.dy, r: m.r, ang: m.ang, rgb: m.rgb, x2: m.x2, y2: m.y2 });
+      this.addFx(m.kind, m.x, m.y, { dx: m.dx, dy: m.dy, r: m.r, ang: m.ang, w: m.w, rgb: m.rgb, x2: m.x2, y2: m.y2 });
       const r = m.by ? this.remotes.get(m.by) : undefined;
-      if (r && m.kind !== 'arco' && m.kind !== 'embestida') { if (m.kind === 'barrido' || m.kind === 'eco') r.swingAt = performance.now(); else r.castAt = performance.now(); }
+      if (r && m.kind !== 'arco' && m.kind !== 'estocada' && m.kind !== 'embestida') {
+        // Giros alrededor (como la Siega) se animan como golpe; lo demás, como lanzamiento.
+        const def = Object.values(FOCOS).find((f) => f.insc.id === m.kind)?.insc;
+        if (def?.shape.type === 'propio' && def.effect.knock) r.swingAt = performance.now(); else r.castAt = performance.now();
+      }
     }));
     this.offs.push(net.on('latency', (m) => { this.el.ping.textContent = `${Math.round(m.ms)} ms`; }));
     this.resize();
@@ -222,11 +252,21 @@ export class Game {
 
   private resize = () => {
     const c = this.ctx.canvas;
-    this.dpr = Math.min(2, devicePixelRatio || 1);
+    // En pantallas táctiles la densidad se limita a 1.5x: casi no se nota y son la mitad de píxeles.
+    const touch = matchMedia('(pointer: coarse)').matches;
+    this.dpr = Math.max(0.6, Math.min(touch ? 1.5 : 2, devicePixelRatio || 1) * this.quality);
     this.W = innerWidth; this.H = innerHeight;
     c.width = Math.round(this.W * this.dpr); c.height = Math.round(this.H * this.dpr);
-    // La capa de oscuridad va a media resolución: los degradados no lo notan y el móvil lo agradece.
-    this.dark.width = Math.ceil(c.width / 2); this.dark.height = Math.ceil(c.height / 2);
+    // La capa de oscuridad va a menor resolución: los degradados no lo notan y el móvil lo agradece.
+    this.darkK = touch ? 1 / 3 : 0.5;
+    this.dark.width = Math.ceil(c.width * this.darkK); this.dark.height = Math.ceil(c.height * this.darkK);
+    // Viñeta y tono violeta a un cuarto de resolución: son degradados suaves.
+    const vw = Math.max(1, Math.ceil(this.W / 4)), vh = Math.max(1, Math.ceil(this.H / 4));
+    this.vignette.width = vw; this.vignette.height = vh;
+    const vgx = this.vignette.getContext('2d')!;
+    vgx.fillStyle = 'rgba(70,24,100,.10)'; vgx.fillRect(0, 0, vw, vh);
+    const vg = vgx.createRadialGradient(vw / 2, vh / 2, Math.min(vw, vh) * 0.3, vw / 2, vh / 2, Math.max(vw, vh) * 0.75);
+    vg.addColorStop(0, 'rgba(8,3,12,0)'); vg.addColorStop(1, 'rgba(8,3,12,.8)'); vgx.fillStyle = vg; vgx.fillRect(0, 0, vw, vh);
     // Zoom según la pantalla para que todos vean la misma porción del mundo.
     this.scale = viewScale(this.W, this.H);
   };
@@ -321,8 +361,23 @@ export class Game {
     this.draw(t);
     this.fpsAcc += dt; this.fpsN++;
     if (this.fpsAcc >= 0.5) { this.el.fps.textContent = `${Math.round(this.fpsN / this.fpsAcc)} fps`; this.fpsAcc = 0; this.fpsN = 0; }
+    this.adaptQuality(dt);
     this.raf = requestAnimationFrame(this.loop);
   };
+
+  /**
+   * Resolución adaptable: cada 2 s mide el ritmo; si baja de 45 FPS, dibuja a menos resolución
+   * (hasta 60 %); si se mantiene arriba de 57 FPS por 6 s, la vuelve a subir.
+   */
+  private adaptQuality(dt: number) {
+    this.qAcc += dt; this.qN++;
+    if (this.qAcc < 2) return;
+    const fps = this.qN / this.qAcc; this.qAcc = 0; this.qN = 0;
+    if (document.hidden) return;
+    if (fps < LOW_FPS && this.quality > 0.6) { this.quality = Math.max(0.6, this.quality - 0.15); this.qHigh = 0; this.resize(); }
+    else if (fps > HIGH_FPS && this.quality < 1) { if (++this.qHigh >= 3) { this.quality = Math.min(1, this.quality + 0.15); this.qHigh = 0; this.resize(); } }
+    else this.qHigh = 0;
+  }
 
   private screenOf(x: number, y: number) {
     return { x: (x - this.cam.x) * this.scale + this.W / 2, y: (y - this.cam.y) * this.scale + this.H / 2 };
@@ -431,6 +486,7 @@ export class Game {
   }
 
   private draw(t: number) {
+    const P = PERF ? [performance.now()] : null;
     const g = this.ctx, now = performance.now(), sec = now / 1000, v = this.viewRect(40), T = TILE, map = this.map;
     g.setTransform(1, 0, 0, 1, 0, 0);
     g.fillStyle = '#0a0510'; g.fillRect(0, 0, g.canvas.width, g.canvas.height);
@@ -445,6 +501,7 @@ export class Game {
         cracks.push(...c.cracks);
       }
 
+    P?.push(performance.now());
     // 2. Todo lo que tiene altura, ordenado por su base (profundidad en tres cuartos).
     const list: { y: number; draw: () => void }[] = [];
     const tx0 = Math.max(0, Math.floor(v.x0 / T)), tx1 = Math.min(map.width - 1, Math.floor(v.x1 / T));
@@ -493,6 +550,7 @@ export class Game {
     this.drawGroundMarks(remotesNow, sec);
     for (const o of list) o.draw();
 
+    P?.push(performance.now());
     // 3. Luz: se recorta la oscuridad con cada fuente y luego se tiñe con su color.
     const lights: Light[] = [];
     if (this.me.alive && !this.me.extracted) lights.push({ x: this.me.x, y: this.me.y - 24, r: VISION_RADIUS, c: '255,190,110' });
@@ -508,22 +566,20 @@ export class Game {
     const d = this.dark.getContext('2d')!;
     d.setTransform(1, 0, 0, 1, 0, 0); d.globalCompositeOperation = 'source-over';
     d.fillStyle = 'rgba(9,4,16,.94)'; d.fillRect(0, 0, this.dark.width, this.dark.height);
-    this.worldTransform(d, 0.5); d.globalCompositeOperation = 'destination-out';
+    this.worldTransform(d, this.darkK); d.globalCompositeOperation = 'destination-out';
     for (const L of vis) {
       const r = L.r * (L.fl != null ? 1 + Math.sin(sec * 9 + L.fl) * 0.04 + Math.sin(sec * 17 + L.fl) * 0.03 : 1);
-      const gr = d.createRadialGradient(L.x, L.y, 0, L.x, L.y, r);
-      gr.addColorStop(0, 'rgba(0,0,0,1)'); gr.addColorStop(0.5, 'rgba(0,0,0,.8)'); gr.addColorStop(1, 'rgba(0,0,0,0)');
-      d.fillStyle = gr; d.beginPath(); d.arc(L.x, L.y, r, 0, 6.283); d.fill();
+      d.drawImage(HOLE(), L.x - r, L.y - r, r * 2, r * 2);
     }
     g.setTransform(1, 0, 0, 1, 0, 0); g.drawImage(this.dark, 0, 0, g.canvas.width, g.canvas.height);
     this.worldTransform(g); g.globalCompositeOperation = 'lighter';
     for (const L of vis) {
       if (L.r >= VISION_RADIUS) continue; // la visión propia no tiñe
-      const r = L.r * 0.85, gr = g.createRadialGradient(L.x, L.y, 0, L.x, L.y, r);
-      gr.addColorStop(0, `rgba(${L.c},${L.a ?? 0.3})`); gr.addColorStop(1, `rgba(${L.c},0)`);
-      g.fillStyle = gr; g.beginPath(); g.arc(L.x, L.y, r, 0, 6.283); g.fill();
+      const r = L.r * 0.85;
+      g.drawImage(TINT(L.c, L.a ?? 0.3), L.x - r, L.y - r, r * 2, r * 2);
     }
 
+    P?.push(performance.now());
     // 4. Brillos mágicos (no los apaga la oscuridad).
     g.globalAlpha = 0.55 + 0.25 * Math.sin(sec * 1.6);
     for (const c of cracks) glowP(g, c, '255,130,40', 0.8);
@@ -547,6 +603,7 @@ export class Game {
     g.globalCompositeOperation = 'source-over';
     this.drawAimIndicator();
 
+    P?.push(performance.now());
     // 5. Interfaz dentro del mundo: nombres, daño, indicaciones y el colapso final.
     for (const { r, x, y } of remotesNow) {
       // Compañeros: vida y nombre en el color del equipo. Rivales: vida roja.
@@ -571,12 +628,12 @@ export class Game {
       if (lp) { g.strokeStyle = 'rgba(255,60,120,.6)'; g.lineWidth = 8; g.beginPath(); g.arc(lp.x, lp.y, this.collapseR, 0, Math.PI * 2); g.stroke(); }
     }
 
+    P?.push(performance.now());
     // 6. Tono violeta, viñeta y destello rojo al recibir daño.
     g.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
-    g.globalCompositeOperation = 'soft-light'; g.fillStyle = 'rgba(120,52,160,.18)'; g.fillRect(0, 0, this.W, this.H);
+    // Tono violeta y viñeta precalculados al cambiar el tamaño (una sola imagen estirada).
     g.globalCompositeOperation = 'source-over';
-    const vg = g.createRadialGradient(this.W / 2, this.H / 2, Math.min(this.W, this.H) * 0.3, this.W / 2, this.H / 2, Math.max(this.W, this.H) * 0.75);
-    vg.addColorStop(0, 'rgba(8,3,12,0)'); vg.addColorStop(1, 'rgba(8,3,12,.8)'); g.fillStyle = vg; g.fillRect(0, 0, this.W, this.H);
+    g.drawImage(this.vignette, 0, 0, this.W, this.H);
     this.drawAllyArrows(remotesNow);
     const hk = 1 - (now - this.hurtAt) / 400;
     if (hk > 0) {
@@ -584,6 +641,7 @@ export class Game {
       hg.addColorStop(0, 'rgba(200,20,40,0)'); hg.addColorStop(1, `rgba(200,20,40,${0.45 * hk})`); g.fillStyle = hg; g.fillRect(0, 0, this.W, this.H);
     }
     this.worldTransform(g);
+    if (P) { P.push(performance.now()); const w = window as any; w.__cgPerf ??= []; w.__cgPerf.push(P.slice(1).map((x, i) => x - P[i])); if (w.__cgPerf.length > 300) w.__cgPerf.shift(); }
   }
 
   /** Flechas en el borde de la pantalla hacia los compañeros que no se ven (espacio de pantalla). */
@@ -712,7 +770,7 @@ export class Game {
     const aim = clampAim(this.me, p, b.shape.range);
     this.me.ax = aim.dirX; this.me.ay = aim.dirY;
     if (b.delivery === 'proyectil') { this.shotAt = now; this.predictProjectiles(n, aim.dirX, aim.dirY, b.projectile!, b.shape.range, foco.id); }
-    else { this.swingAt = now; this.addFx('arco', this.me.x, this.me.y, { dx: aim.dirX, dy: aim.dirY, r: b.shape.range * TILE, ang: b.shape.angle, rgb: foco.rgb }); }
+    else { this.swingAt = now; this.addFx(b.shape.type === 'linea' ? 'estocada' : 'arco', this.me.x, this.me.y, { dx: aim.dirX, dy: aim.dirY, r: b.shape.range * TILE, ang: b.shape.angle, w: (b.shape.width ?? 0) * TILE, rgb: foco.rgb }); }
   }
 
   /** Habilidad: se predice la recarga y el efecto (embestida y parpadeo incluidos); el servidor confirma. */
@@ -757,14 +815,14 @@ export class Game {
   }
 
   private addFx(kind: string, x: number, y: number, o: Partial<Fx> = {}) {
-    const dur = kind === 'arco' ? 240 : kind === 'escuchar' ? 900 : 520;
+    const dur = kind === 'arco' || kind === 'estocada' ? 240 : kind === 'escuchar' ? 900 : 520;
     this.fxs.push({ kind, x, y, ...o, t0: performance.now(), dur });
     if (this.fxs.length > 80) this.fxs.shift();
   }
 
   /** Ataque básico de otro jugador: la animación (sus proyectiles llegan en la instantánea). */
   private remoteAttack(r: Remote, o: { foco?: string }) {
-    const foco = FOCOS[o.foco ?? 'vara'];
+    const foco = FOCOS[o.foco ?? 'gemelas'];
     if (foco?.melee) r.swingAt = performance.now(); else r.shotAt = performance.now();
   }
 
@@ -842,7 +900,12 @@ export class Game {
       const k = (now - f.t0) / f.dur, a = 1 - k, rgb = f.rgb ?? this.rgbOf(f.kind);
       const def = NOMBRES[f.kind] ?? Object.values(FOCOS).find((x) => x.insc.id === f.kind)?.insc;
       const type = f.kind === 'arco' ? 'cono' : def?.shape.type;
-      if (def?.delivery === 'parpadeo' && f.x2 != null && f.y2 != null) {
+      if (f.kind === 'estocada') {
+        // Estocada: una franja recta que sale y se desvanece.
+        const L = (f.r ?? 150) * Math.min(1, k * 2.5), w = Math.max(14, f.w ?? 30);
+        g.strokeStyle = `rgba(${rgb},${a * 0.85})`; g.lineWidth = w * a + 2; g.lineCap = 'round';
+        g.beginPath(); g.moveTo(f.x, f.y - 16); g.lineTo(f.x + (f.dx ?? 0) * L, f.y - 16 + (f.dy ?? 0) * L); g.stroke();
+      } else if (def?.delivery === 'parpadeo' && f.x2 != null && f.y2 != null) {
         for (const [px, py] of [[f.x, f.y], [f.x2, f.y2]]) { g.globalAlpha = a; g.drawImage(art.dot.violet, px - 50, py - 70, 100, 100); }
         g.globalAlpha = 1;
       } else if (def?.delivery === 'embestida') {

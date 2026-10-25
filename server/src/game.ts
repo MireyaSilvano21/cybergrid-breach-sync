@@ -2,7 +2,7 @@ import {
   PLAYER, TICK_MS, SYNC_SECONDS, computeDamage, applyHealth, generateValidMap, moveCircle, hasLineOfSight,
   phaseAt, scalePhases, DEFAULT_PHASES, placeChests, addToInventory, itemValue, INTERACT_RANGE,
   isSolidWorld, solidAt, pushHistory, positionAt, clampRewind, type TimedPoint, createMoveQueue, enqueueMove, consumeMoves, type MoveQueue,
-  FOCOS, abilityFor, clampAim, fanDirections, inCone, blinkTarget, reloadAmmo, dashMulFor,
+  FOCOS, abilityFor, clampAim, fanDirections, inCone, inLine, blinkTarget, reloadAmmo, dashMulFor,
   AMMO_MAX, GCD_MS, SWAP_MS, DASH_S, SLOW_MUL, TILE,
   type Build, type Slot, type AbilityDef, type Effect, type ProjectileDef,
   type GridMap, type InputMessage, type MatchRecord, type PhaseConfig,
@@ -269,12 +269,15 @@ export class Match {
     const effect: Effect = { dmg: b.dmg, ...(b.effect ?? {}) };
     if (b.delivery === 'proyectil') { this.spawnProjectiles(a, aim.dirX, aim.dirY, b.projectile!, b.shape.range, effect, foco.id, f.n); return; }
     const at = clampRewind(now, a.viewT);
+    // Arco (cono) o estocada (línea): se revisa contra lo que veía el atacante.
+    const line = b.shape.type === 'linea';
     for (const t of this.enemies(a)) {
       const seen = positionAt(t.history, at) ?? t;
-      if (!inCone(a, aim.dirX, aim.dirY, seen, b.shape.range, b.shape.angle ?? 90) || !hasLineOfSight(this.map, a, seen)) continue;
+      const inside = line ? inLine(a, aim.dirX, aim.dirY, seen, b.shape.range, b.shape.width ?? 0.5) : inCone(a, aim.dirX, aim.dirY, seen, b.shape.range, b.shape.angle ?? 90);
+      if (!inside || !hasLineOfSight(this.map, a, seen)) continue;
       this.applyEffect(a, t, effect, a, now, seen, now - at);
     }
-    this.fx('arco', a.x, a.y, { dx: aim.dirX, dy: aim.dirY, r: b.shape.range * TILE, ang: b.shape.angle, rgb: foco.rgb, by: a.conn.id });
+    this.fx(line ? 'estocada' : 'arco', a.x, a.y, { dx: aim.dirX, dy: aim.dirY, r: b.shape.range * TILE, ang: b.shape.angle, w: (b.shape.width ?? 0) * TILE, rgb: foco.rgb, by: a.conn.id });
   }
 
   /** Lanza una habilidad: el servidor revisa recarga, recarga global y estado, y aplica el efecto. */

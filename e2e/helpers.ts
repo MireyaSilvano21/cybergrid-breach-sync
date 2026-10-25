@@ -5,6 +5,9 @@ export const uniqueName = (p: string) => `${p}${Date.now().toString(36).slice(-5
 /** Registra y entra al lobby. Por defecto abre "Partidas privadas" (salas manuales). */
 export async function register(page: Page, name: string, password = 'secreta123', tab: 'privadas' | 'campamento' = 'privadas') {
   await page.goto('/');
+  // En táctil aparece "Toca para empezar" (activa la pantalla completa); se toca para seguir.
+  const splash = page.locator('#splash');
+  if (await splash.isVisible()) await splash.click();
   await page.fill('#username', name);
   await page.fill('#password', password);
   await page.click('#register-btn');

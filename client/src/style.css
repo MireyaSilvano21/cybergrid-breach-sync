@@ -122,10 +122,7 @@ button:focus-visible,input:focus-visible{outline:3px solid var(--gold-l);outline
 .ico-portal{--ico:url(/assets/ui/tiza-portal.svg);--c:var(--chalk-mint);width:26px;height:26px}
 [data-ability="llamar_piedra"]{--ico:url(/assets/ui/tiza-piedra.svg)}
 [data-ability="temblor"]{--ico:url(/assets/ui/tiza-temblor.svg)}
-[data-ability="barrido"]{--ico:url(/assets/ui/tiza-barrido.svg)}
 [data-ability="andanada"]{--ico:url(/assets/ui/tiza-andanada.svg)}
-[data-ability="vara"]{--ico:url(/assets/ui/tiza-vara.svg)}
-[data-ability="anillo"]{--ico:url(/assets/ui/tiza-anillo.svg)}
 .num,.brujula,.ab-key,.ab-cd,.inv-value,.sync-txt,.toast,.tbtn,.fs-btn{font-family:var(--sketch)}
 
 .hud{position:absolute;left:max(14px,env(safe-area-inset-left));right:max(14px,env(safe-area-inset-right));top:calc(10px + env(safe-area-inset-top));
@@ -207,7 +204,9 @@ button:focus-visible,input:focus-visible{outline:3px solid var(--gold-l);outline
 .tbtn.use{width:52px;height:52px;--ring:var(--rune);--c:#ffb0ec;--ico:url(/assets/ui/tiza-usar.svg);color:#ffb0ec;font-size:.68rem}
 .fs-btn{position:absolute;top:calc(10px + env(safe-area-inset-top));right:max(12px,env(safe-area-inset-right));pointer-events:auto;padding:6px 10px;font-size:.9rem;
   background:rgba(14,8,16,.6);color:var(--chalk);border:2px solid var(--chalk-dim);border-radius:8px}
-.tring{position:relative;width:220px;height:200px}
+.tring{position:relative;width:220px;height:200px;pointer-events:none}
+/* La caja del anillo no recibe toques (tapaba el botón Usar); solo los botones. */
+.tring .tbtn{pointer-events:auto}
 .tring .tbtn{position:absolute}
 .tring .atk{right:0;bottom:0}
 .tbtn.ab,.tbtn.sw{width:58px;height:58px;font-size:.85rem;color:var(--chalk-gold)}
@@ -323,11 +322,28 @@ button:focus-visible,input:focus-visible{outline:3px solid var(--gold-l);outline
 [data-ability="corte"]{--ico:url(/assets/ui/tiza-corte.svg)}
 [data-ability="lluvia"]{--ico:url(/assets/ui/tiza-lluvia.svg)}
 [data-ability="vinculo"]{--ico:url(/assets/ui/tiza-vinculo.svg)}
-[data-ability="eco"]{--ico:url(/assets/ui/tiza-eco.svg)}
 [data-ability="grieta"]{--ico:url(/assets/ui/tiza-grieta.svg)}
 [data-ability="martillo"]{--ico:url(/assets/ui/tiza-martillo.svg)}
 [data-ability="daga"]{--ico:url(/assets/ui/tiza-daga.svg)}
 [data-ability="arco"]{--ico:url(/assets/ui/tiza-arco.svg)}
-[data-ability="orbe"]{--ico:url(/assets/ui/tiza-orbe.svg)}
-[data-ability="campana"]{--ico:url(/assets/ui/tiza-campana.svg)}
-[data-ability="grimorio"]{--ico:url(/assets/ui/tiza-grimorio.svg)}
+
+/* Pantalla de inicio en táctil: el toque activa la pantalla completa. */
+.splash{position:fixed;inset:0;z-index:50;display:grid;place-items:center;background:var(--grano),radial-gradient(ellipse at 50% 40%,#4a2f1d,#140b07 75%);background-size:200px,cover;cursor:pointer;touch-action:manipulation}
+.splash-in{text-align:center;padding:24px}
+.splash .brand{color:#fff1c8;font-size:3.4rem;text-shadow:0 3px 0 var(--ink),2px 0 0 var(--ink),-2px 0 0 var(--ink),0 -2px 0 var(--ink)}
+.splash .sub{color:var(--gold-l)}
+.splash .toca{margin-top:28px;font:700 1.5rem var(--sketch);color:var(--chalk);animation:latido 1.4s ease-in-out infinite}
+.splash .ios{margin:18px auto 0;max-width:340px;color:var(--chalk-dim);font-size:.95rem}
+
+/* Íconos de tiza de las 10 armas y sus Inscripciones. */
+[data-ability="llama"]{--ico:url(/assets/ui/tiza-llama.svg)}
+[data-ability="cetro_lunar"]{--ico:url(/assets/ui/tiza-cetro_lunar.svg)}
+[data-ability="lanza"]{--ico:url(/assets/ui/tiza-lanza.svg)}
+[data-ability="guadana"]{--ico:url(/assets/ui/tiza-guadana.svg)}
+[data-ability="gemelas"]{--ico:url(/assets/ui/tiza-gemelas.svg)}
+[data-ability="cetro_rubi"]{--ico:url(/assets/ui/tiza-cetro_rubi.svg)}
+[data-ability="revolver"]{--ico:url(/assets/ui/tiza-revolver.svg)}
+[data-ability="abanico"]{--ico:url(/assets/ui/tiza-abanico.svg)}
+[data-ability="llamarada"]{--ico:url(/assets/ui/tiza-llamarada.svg)}
+[data-ability="lanzamiento"]{--ico:url(/assets/ui/tiza-lanzamiento.svg)}
+[data-ability="siega"]{--ico:url(/assets/ui/tiza-siega.svg)}

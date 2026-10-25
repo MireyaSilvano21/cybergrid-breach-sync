@@ -5,11 +5,11 @@ import { drawCharacter, OUTFITS, HEADS } from './rig';
 type Anim = 'quieto' | 'caminar' | ActionKind | 'morir';
 const ANIMS: [Anim, string][] = [['quieto', 'Quieto'], ['caminar', 'Caminar'], ['melee', 'Golpe'], ['shoot', 'Disparo'], ['cast', 'Lanzar'], ['hit', 'Recibir golpe'], ['morir', 'Morir']];
 const VIEWS_ES: [View | 'gira', string][] = [['front', 'Frente'], ['side', 'Lado'], ['back', 'Espalda'], ['gira', 'Girar']];
-const FOCOS: [string, string][] = [['vara', 'Vara'], ['anillo', 'Anillo'], ['martillo', 'Martillo'], ['daga', 'Daga'], ['arco', 'Arco'], ['orbe', 'Orbe'], ['campana', 'Campana'], ['grimorio', 'Grimorio'], ['', 'Ninguno']];
+const FOCOS: [string, string][] = [['daga', 'Daga'], ['llama', 'Hoja de Llama'], ['cetro_lunar', 'Cetro Lunar'], ['lanza', 'Lanza'], ['guadana', 'Guadaña'], ['gemelas', 'Gemelas'], ['martillo', 'Martillo'], ['cetro_rubi', 'Cetro de Rubí'], ['revolver', 'Revólver'], ['arco', 'Arco'], ['', 'Ninguno']];
 const TEAM = '#ffb347';
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
-const state = { anim: 'caminar' as Anim, view: 'gira' as View | 'gira', foco: 'vara', app: { body: 'medio', outfit: 'tharven_guardia', head: 'a' } as Appearance };
+const state = { anim: 'caminar' as Anim, view: 'gira' as View | 'gira', foco: 'gemelas', app: { body: 'medio', outfit: 'tharven_guardia', head: 'a' } as Appearance };
 
 function seg<T extends string>(id: string, items: [T, string][], get: () => T, set: (v: T) => void) {
   const el = $(id);
@@ -84,7 +84,7 @@ function frame(now: number) {
     const app: Appearance = { outfit: o, body: BODY_IDS[i % 4], head: HEAD_IDS[i % HEAD_IDS.length] };
     const v: View = (['front', 'side', 'back', 'side'] as View[])[Math.floor(sec / 2.5 + i) % 4];
     const pose = animate(v, { t: sec + i, walk: sec * 9, move: i % 2 ? 1 : 0 }, BODIES[app.body]);
-    drawCharacter(G.g, { x: k * (i + 0.5), y: gy, view: v, flip: i % 4 === 3, app, pose, team: i % 2 ? '#9a6bff' : TEAM, foco: i % 2 ? 'anillo' : 'vara', t: sec, scale: gs });
+    drawCharacter(G.g, { x: k * (i + 0.5), y: gy, view: v, flip: i % 4 === 3, app, pose, team: i % 2 ? '#9a6bff' : TEAM, foco: ['daga', 'llama', 'cetro_lunar', 'lanza', 'guadana', 'gemelas', 'martillo', 'revolver'][i], t: sec, scale: gs });
     G.g.fillStyle = '#efe4d2'; G.g.font = `${12 * G.dpr}px 'Alegreya Sans', sans-serif`; G.g.textAlign = 'center';
     G.g.fillText(OUTFITS[o].name, k * (i + 0.5), gy + 26 * G.dpr);
     G.g.fillStyle = '#a897b4'; G.g.fillText(BODIES[app.body].name, k * (i + 0.5), gy + 42 * G.dpr);

@@ -1,4 +1,5 @@
 import type { Slot } from '@shared/index';
+import { enterFullscreen } from './fullscreen';
 
 /** B es el básico; Q, E y R las habilidades. */
 export type AimSlot = 'B' | Slot;
@@ -142,15 +143,8 @@ export class Input {
     sync();
   }
 
-  private fsTried = false;
-  /** Pantalla completa en horizontal. El navegador solo lo permite tras un toque del usuario. */
-  requestFullscreen(force = false) {
-    if ((!force && this.fsTried) || document.fullscreenElement || !document.fullscreenEnabled) return;
-    this.fsTried = true;
-    document.documentElement.requestFullscreen({ navigationUI: 'hide' })
-      .then(() => (screen.orientation as ScreenOrientation & { lock?: (o: string) => Promise<void> }).lock?.('landscape'))
-      .catch(() => { /* el navegador puede negarlo; el juego funciona igual */ });
-  }
+  /** Pantalla completa en horizontal (si se salió de ella); el navegador lo permite tras un toque. */
+  requestFullscreen(_force = false) { void enterFullscreen(); }
 
   private useHeld = false;
 
