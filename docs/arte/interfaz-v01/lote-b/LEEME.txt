@@ -1,0 +1,13 @@
+CyberGrid: Breach & Sync — Interfaz — Lote B — v01
+
+15 PNG de juego en la raíz, con los nombres y dimensiones del encargo.
+
+QA/ contiene vistas sobre #1c1222 y pergamino, escalado por cortes en tres tamaños, repetición 2×2 de texturas y, en el lote B, íconos a 32/48/96 px. Los rótulos de QA no forman parte de los assets.
+
+Importación: conservar alfa recto (sin premultiplicar) y filtrado lineal. No añadir fondo. Los cortes están en cortes.json en orden izquierda/arriba/derecha/abajo. El rollo se estira solo horizontalmente con extremos fijos de 60 px.
+
+Las texturas usan montaje de cuadrantes reflejados para garantizar continuidad en ambos ejes; este método introduce simetría. En el HUD, todos los RGB son blanco puro y la cobertura está en alfa para que el juego aplique su color. La textura de tiza se calibra al 75% de cobertura alfa media.
+
+Dibujos generados con ImageGen integrado; prompts incluidos. La exportación técnica aplica recorte, escalado y codificación de máscaras, sin redibujar los íconos. La tinta de menús se mantiene como fue generada según la referencia ciruela, sin forzar un RGB único.
+
+SHA256SUMS.txt cubre todos los archivos salvo el propio manifiesto. validacion.json contiene los controles medidos. Entrega para revisión visual; la prueba en la interfaz del juego queda a cargo de integración.

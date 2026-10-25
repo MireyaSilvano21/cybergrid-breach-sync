@@ -1,0 +1,394 @@
+{
+  "proyecto": "CyberGrid: Breach & Sync",
+  "lote": "B",
+  "version": "v01",
+  "cantidad_png_principales": 15,
+  "archivos": [
+    {
+      "archivo": "tiza-textura.png",
+      "dimensiones": [
+        512,
+        512
+      ],
+      "modo": "RGBA",
+      "sha256": "3a6d552e35958f1d07f394005048720bc598be1c07833d97e5dcf2573b451c6f",
+      "operaciones_exportacion": [
+        "Recorte de dos sistemas de grietas y montaje de cuatro cuadrantes reflejados para repetición continua.",
+        "Conversión a máscara RGB #ffffff y calibración de cobertura alfa media al 75%; no se dibujan trazos nuevos."
+      ],
+      "dimension_correcta": true,
+      "alpha_min": 0,
+      "alpha_max": 240,
+      "bordes_opuestos_identicos": true,
+      "solo_blanco_RGB": true,
+      "cobertura_alfa_media": 0.750066
+    },
+    {
+      "archivo": "tiza-recuadro.png",
+      "dimensiones": [
+        128,
+        128
+      ],
+      "modo": "RGBA",
+      "sha256": "ad137a2348ad22d5cf471beb54e56df0c5b1865780e51dbb81e9d0a6977f0712",
+      "operaciones_exportacion": [
+        "Recorte del margen transparente y exportación al lienzo final.",
+        "RGB #ffffff; grano, huecos y suavizado conservados en alfa."
+      ],
+      "dimension_correcta": true,
+      "alpha_min": 0,
+      "alpha_max": 255,
+      "cortes_izquierda_arriba_derecha_abajo": [
+        24,
+        24,
+        24,
+        24
+      ],
+      "solo_blanco_RGB": true,
+      "cobertura_alfa_media": 0.113039,
+      "centro_transparente": true,
+      "pruebas_escalado": [
+        [
+          128,
+          128
+        ],
+        [
+          192,
+          176
+        ],
+        [
+          256,
+          224
+        ]
+      ],
+      "esquinas_sin_deformacion": true
+    },
+    {
+      "archivo": "tiza-circulo.png",
+      "dimensiones": [
+        256,
+        256
+      ],
+      "modo": "RGBA",
+      "sha256": "fcd123bd1d726029ed9a87c0f43b3123705fe773f3ebec6c4637f2cdc892006e",
+      "operaciones_exportacion": [
+        "Recorte del margen transparente y exportación al lienzo final.",
+        "RGB #ffffff; grano, huecos y suavizado conservados en alfa."
+      ],
+      "dimension_correcta": true,
+      "alpha_min": 0,
+      "alpha_max": 255,
+      "solo_blanco_RGB": true,
+      "cobertura_alfa_media": 0.078108,
+      "centro_transparente": true,
+      "ancho_trazo_horizontal_px": 7
+    },
+    {
+      "archivo": "tiza-piedra.png",
+      "dimensiones": [
+        128,
+        128
+      ],
+      "modo": "RGBA",
+      "sha256": "dcd186165527b967a04a3b8cfbe777e5192f9f55f8e152881a9d3a1f64286e9e",
+      "operaciones_exportacion": [
+        "Recorte del margen transparente y exportación al lienzo final.",
+        "RGB #ffffff; grano, huecos y suavizado conservados en alfa."
+      ],
+      "dimension_correcta": true,
+      "alpha_min": 0,
+      "alpha_max": 255,
+      "solo_blanco_RGB": true,
+      "cobertura_alfa_media": 0.113761,
+      "margenes_px": [
+        12,
+        30,
+        12,
+        31
+      ],
+      "margen_minimo_12": true
+    },
+    {
+      "archivo": "tiza-temblor.png",
+      "dimensiones": [
+        128,
+        128
+      ],
+      "modo": "RGBA",
+      "sha256": "86b2d3d4f3277c4062fa21c784b032ff181956098bacae1061902f3b4fda1637",
+      "operaciones_exportacion": [
+        "Recorte del margen transparente y exportación al lienzo final.",
+        "RGB #ffffff; grano, huecos y suavizado conservados en alfa."
+      ],
+      "dimension_correcta": true,
+      "alpha_min": 0,
+      "alpha_max": 255,
+      "solo_blanco_RGB": true,
+      "cobertura_alfa_media": 0.093249,
+      "margenes_px": [
+        12,
+        30,
+        12,
+        30
+      ],
+      "margen_minimo_12": true
+    },
+    {
+      "archivo": "tiza-barrido.png",
+      "dimensiones": [
+        128,
+        128
+      ],
+      "modo": "RGBA",
+      "sha256": "042011aa7901857682c6190dc6363c0af201486431a0e0240fc8d839f2f3aecf",
+      "operaciones_exportacion": [
+        "Recorte del margen transparente y exportación al lienzo final.",
+        "RGB #ffffff; grano, huecos y suavizado conservados en alfa."
+      ],
+      "dimension_correcta": true,
+      "alpha_min": 0,
+      "alpha_max": 255,
+      "solo_blanco_RGB": true,
+      "cobertura_alfa_media": 0.174741,
+      "margenes_px": [
+        12,
+        15,
+        12,
+        16
+      ],
+      "margen_minimo_12": true
+    },
+    {
+      "archivo": "tiza-andanada.png",
+      "dimensiones": [
+        128,
+        128
+      ],
+      "modo": "RGBA",
+      "sha256": "eadfd84ba49ed0b661acd73188ac2e6f83bd47195819636d79caaf1ea962aaa6",
+      "operaciones_exportacion": [
+        "Recorte del margen transparente y exportación al lienzo final.",
+        "RGB #ffffff; grano, huecos y suavizado conservados en alfa."
+      ],
+      "dimension_correcta": true,
+      "alpha_min": 0,
+      "alpha_max": 255,
+      "solo_blanco_RGB": true,
+      "cobertura_alfa_media": 0.163455,
+      "margenes_px": [
+        16,
+        12,
+        16,
+        12
+      ],
+      "margen_minimo_12": true
+    },
+    {
+      "archivo": "tiza-vara.png",
+      "dimensiones": [
+        128,
+        128
+      ],
+      "modo": "RGBA",
+      "sha256": "e90d74294000301c46664f72731773b609edf26d436219baf2d75b0ecf2aeda8",
+      "operaciones_exportacion": [
+        "Recorte del margen transparente y exportación al lienzo final.",
+        "RGB #ffffff; grano, huecos y suavizado conservados en alfa."
+      ],
+      "dimension_correcta": true,
+      "alpha_min": 0,
+      "alpha_max": 255,
+      "solo_blanco_RGB": true,
+      "cobertura_alfa_media": 0.076698,
+      "margenes_px": [
+        17,
+        12,
+        18,
+        12
+      ],
+      "margen_minimo_12": true
+    },
+    {
+      "archivo": "tiza-anillo.png",
+      "dimensiones": [
+        128,
+        128
+      ],
+      "modo": "RGBA",
+      "sha256": "678f7e1338bd487f318c43c2645dad887081e84e58f51233691e623c83aa090b",
+      "operaciones_exportacion": [
+        "Recorte del margen transparente y exportación al lienzo final.",
+        "RGB #ffffff; grano, huecos y suavizado conservados en alfa."
+      ],
+      "dimension_correcta": true,
+      "alpha_min": 0,
+      "alpha_max": 255,
+      "solo_blanco_RGB": true,
+      "cobertura_alfa_media": 0.198199,
+      "margenes_px": [
+        12,
+        19,
+        12,
+        19
+      ],
+      "margen_minimo_12": true
+    },
+    {
+      "archivo": "tiza-corazon.png",
+      "dimensiones": [
+        128,
+        128
+      ],
+      "modo": "RGBA",
+      "sha256": "3c1e7d0ef8d8d01a9e015e1f0889d21130cff3d24cee092820d68b5c3d51c4f5",
+      "operaciones_exportacion": [
+        "Recorte del margen transparente y exportación al lienzo final.",
+        "RGB #ffffff; grano, huecos y suavizado conservados en alfa."
+      ],
+      "dimension_correcta": true,
+      "alpha_min": 0,
+      "alpha_max": 255,
+      "solo_blanco_RGB": true,
+      "cobertura_alfa_media": 0.133853,
+      "margenes_px": [
+        12,
+        18,
+        12,
+        19
+      ],
+      "margen_minimo_12": true
+    },
+    {
+      "archivo": "tiza-portal.png",
+      "dimensiones": [
+        128,
+        128
+      ],
+      "modo": "RGBA",
+      "sha256": "e8e561bc758d22652dd7a8bd3ff51bd9ed4640cba2d8e823950c099a5205df5e",
+      "operaciones_exportacion": [
+        "Recorte del margen transparente y exportación al lienzo final.",
+        "RGB #ffffff; grano, huecos y suavizado conservados en alfa."
+      ],
+      "dimension_correcta": true,
+      "alpha_min": 0,
+      "alpha_max": 255,
+      "solo_blanco_RGB": true,
+      "cobertura_alfa_media": 0.244926,
+      "margenes_px": [
+        12,
+        12,
+        13,
+        12
+      ],
+      "margen_minimo_12": true
+    },
+    {
+      "archivo": "tiza-mochila.png",
+      "dimensiones": [
+        128,
+        128
+      ],
+      "modo": "RGBA",
+      "sha256": "2952d5b081107e976667790896378b523ecf7a174d3d920c0d99ef7fa884d891",
+      "operaciones_exportacion": [
+        "Recorte del margen transparente y exportación al lienzo final.",
+        "RGB #ffffff; grano, huecos y suavizado conservados en alfa."
+      ],
+      "dimension_correcta": true,
+      "alpha_min": 0,
+      "alpha_max": 255,
+      "solo_blanco_RGB": true,
+      "cobertura_alfa_media": 0.213233,
+      "margenes_px": [
+        14,
+        12,
+        15,
+        12
+      ],
+      "margen_minimo_12": true
+    },
+    {
+      "archivo": "tiza-atacar.png",
+      "dimensiones": [
+        128,
+        128
+      ],
+      "modo": "RGBA",
+      "sha256": "fdec2c526f23b59d06c2b4671f92cf608a5fa05942730a6048ee81d7cd05982a",
+      "operaciones_exportacion": [
+        "Recorte del margen transparente y exportación al lienzo final.",
+        "RGB #ffffff; grano, huecos y suavizado conservados en alfa."
+      ],
+      "dimension_correcta": true,
+      "alpha_min": 0,
+      "alpha_max": 255,
+      "solo_blanco_RGB": true,
+      "cobertura_alfa_media": 0.125354,
+      "margenes_px": [
+        12,
+        12,
+        12,
+        12
+      ],
+      "margen_minimo_12": true
+    },
+    {
+      "archivo": "tiza-usar.png",
+      "dimensiones": [
+        128,
+        128
+      ],
+      "modo": "RGBA",
+      "sha256": "16618d4a6857bf697de30c6561081e0ed19c99a1c31882c4873e93bda7cc413c",
+      "operaciones_exportacion": [
+        "Recorte del margen transparente y exportación al lienzo final.",
+        "RGB #ffffff; grano, huecos y suavizado conservados en alfa."
+      ],
+      "dimension_correcta": true,
+      "alpha_min": 0,
+      "alpha_max": 255,
+      "solo_blanco_RGB": true,
+      "cobertura_alfa_media": 0.19724,
+      "margenes_px": [
+        17,
+        12,
+        18,
+        12
+      ],
+      "margen_minimo_12": true
+    },
+    {
+      "archivo": "tiza-cambiar.png",
+      "dimensiones": [
+        128,
+        128
+      ],
+      "modo": "RGBA",
+      "sha256": "5d3ab16b6aa033945fbfa8327301af8f7a26c77b4dfc0dbbd03b0d87e1ac9a07",
+      "operaciones_exportacion": [
+        "Recorte del margen transparente y exportación al lienzo final.",
+        "RGB #ffffff; grano, huecos y suavizado conservados en alfa."
+      ],
+      "dimension_correcta": true,
+      "alpha_min": 0,
+      "alpha_max": 255,
+      "solo_blanco_RGB": true,
+      "cobertura_alfa_media": 0.155699,
+      "margenes_px": [
+        12,
+        26,
+        12,
+        26
+      ],
+      "margen_minimo_12": true
+    }
+  ],
+  "criterios_visuales": "Revisión visual en QA; los valores de píxeles y hashes corresponden a los PNG exportados. No implica aprobación del cliente.",
+  "herramienta_creacion": "ImageGen integrado; un diseño por generación. Exportación técnica con Pillow.",
+  "notas": [
+    "Las láminas QA incluyen texto de identificación; los PNG de juego no contienen texto.",
+    "Texturas montadas con cuadrantes reflejados: repetición continua con simetría visible al inspeccionar el patrón.",
+    "La cobertura del 75% se mide como alfa medio, incluyendo el suavizado y el grano; no como porcentaje de píxeles completamente opacos."
+  ]
+}
