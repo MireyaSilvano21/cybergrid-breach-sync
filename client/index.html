@@ -12,14 +12,15 @@
   <link rel="icon" href="/icon-192.png" />
   <link rel="apple-touch-icon" href="/icon-192.png" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Grenze+Gotisch:wght@600;700&family=Alegreya+Sans:wght@400;500;700&display=swap" />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Grenze+Gotisch:wght@600;700&family=Alegreya+Sans:wght@400;500;700&family=Cabin+Sketch:wght@400;700&display=swap" />
 </head>
 <body>
   <main id="screen-login" class="screen panel-screen">
-    <section class="card">
-      <h1 class="brand">CyberGrid</h1>
+    <section class="tomo">
+      <span class="hojas tl" aria-hidden="true"></span><span class="hojas br" aria-hidden="true"></span>
+      <div class="placa titulo"><h1 class="brand">CyberGrid</h1></div>
       <p class="sub">Breach &amp; Sync</p>
-      <form id="auth-form" novalidate>
+      <form id="auth-form" class="hoja" novalidate>
         <label for="username">Usuario</label>
         <input id="username" name="username" autocomplete="username" required minlength="3" maxlength="20" />
         <label for="password">Contraseña</label>
@@ -34,8 +35,8 @@
   </main>
 
   <main id="screen-lobby" class="screen panel-screen" hidden>
-    <section class="card wide">
-      <header class="lobby-head">
+    <div class="lobby">
+      <header class="lobby-head placa">
         <h2>Salas</h2>
         <div class="status">
           <span id="socket-status" data-state="disconnected">Desconectado</span>
@@ -44,48 +45,58 @@
           <button id="logout-btn" class="link">Salir</button>
         </div>
       </header>
-      <div class="lobby-grid">
-        <div>
-          <form id="create-room" class="row wrap" novalidate>
-            <input id="room-name" placeholder="Nombre de la sala" maxlength="24" required />
-            <input id="room-password" placeholder="Contraseña (opcional)" maxlength="32" />
-            <button type="submit" class="primary">Crear sala</button>
-          </form>
-          <p id="lobby-error" class="error" role="alert"></p>
-          <ul id="room-list" class="list"></ul>
-        </div>
-        <aside id="room-panel" hidden>
-          <h3 id="room-title"></h3>
-          <ul id="room-players" class="list"></ul>
-          <div class="row">
-            <button id="ready-btn" class="primary" aria-pressed="false">Listo</button>
-            <button id="leave-btn">Salir de la sala</button>
+      <section class="libro">
+        <span class="cinta c1" aria-hidden="true"></span><span class="cinta c2" aria-hidden="true"></span>
+        <span class="hojas tl" aria-hidden="true"></span><span class="hojas br" aria-hidden="true"></span>
+        <div class="lobby-grid">
+          <div class="pagina izq">
+            <h3>Abrir una sala</h3>
+            <form id="create-room" class="row wrap" novalidate>
+              <input id="room-name" placeholder="Nombre de la sala" maxlength="24" required />
+              <input id="room-password" placeholder="Contraseña (opcional)" maxlength="32" />
+              <button type="submit" class="primary">Crear sala</button>
+            </form>
+            <p id="lobby-error" class="error" role="alert"></p>
+            <h3 class="sep">Salas abiertas</h3>
+            <ul id="room-list" class="list"></ul>
           </div>
-        </aside>
-      </div>
-    </section>
+          <div class="pagina der">
+            <p class="vacio">Elige una sala de la izquierda o abre la tuya. Cuando todos marquen <b>Listo</b>, empieza la partida.</p>
+            <aside id="room-panel" hidden>
+              <h3 id="room-title"></h3>
+              <ul id="room-players" class="list"></ul>
+              <div class="row">
+                <button id="ready-btn" class="primary" aria-pressed="false">Listo</button>
+                <button id="leave-btn">Salir de la sala</button>
+              </div>
+            </aside>
+          </div>
+        </div>
+      </section>
+    </div>
   </main>
 
   <main id="screen-game" class="screen" hidden>
     <canvas id="game" aria-label="Partida en curso"></canvas>
     <div class="hud top">
-      <div class="hp"><div id="hp-bar"></div><span id="hp-text">100</span></div>
-      <span id="phase" class="pill"></span>
-      <span id="timer" class="mono"></span>
-      <span id="ping" class="mono">— ms</span>
-      <span id="fps" class="mono"></span>
+      <div class="vida">
+        <div class="vida-fila"><span class="ico ico-corazon" aria-hidden="true"></span><div class="hp"><div id="hp-bar"></div></div><span id="hp-text" class="num">100</span></div>
+        <div class="red"><span id="ping" class="mono">— ms</span><span id="fps" class="mono"></span></div>
+      </div>
+      <div class="brujula"><span id="phase"></span><span id="timer" class="mono"></span></div>
     </div>
     <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
     <div id="inventory" class="inv" data-count="0" data-value="0" aria-label="Mochila">
+      <span class="ico ico-mochila" aria-hidden="true"></span>
       <div id="inv-slots" class="slots"></div>
       <span id="inv-value" class="inv-value">0</span>
     </div>
-    <div id="sync" class="sync" hidden><div id="sync-bar"></div><span>Sincronizando con el portal…</span></div>
+    <div id="sync" class="sync" hidden><span class="ico ico-portal" aria-hidden="true"></span><div class="sync-carril"><div id="sync-bar"></div></div><span class="sync-txt">Sincronizando con el portal…</span></div>
     <div id="abilities" class="abil" aria-label="Habilidades">
-      <div class="ab" data-slot="Q"><span class="ab-key">Q</span><span class="ab-name"></span><span class="ab-cd"></span></div>
-      <div class="ab" data-slot="E"><span class="ab-key">E</span><span class="ab-name"></span><span class="ab-cd"></span></div>
-      <div class="ab" data-slot="R"><span class="ab-key">R</span><span class="ab-name"></span><span class="ab-cd"></span></div>
-      <div class="ab swap" data-slot="S"><span class="ab-key">Espacio</span><span class="ab-name"></span><span class="ab-cd"></span></div>
+      <div class="ab" data-slot="Q"><span class="ab-ico" aria-hidden="true"></span><span class="ab-key">Q</span><span class="ab-name"></span><span class="ab-cd"></span></div>
+      <div class="ab" data-slot="E"><span class="ab-ico" aria-hidden="true"></span><span class="ab-key">E</span><span class="ab-name"></span><span class="ab-cd"></span></div>
+      <div class="ab" data-slot="R"><span class="ab-ico" aria-hidden="true"></span><span class="ab-key">R</span><span class="ab-name"></span><span class="ab-cd"></span></div>
+      <div class="ab swap" data-slot="S"><span class="ab-ico" aria-hidden="true"></span><span class="ab-key">Espacio</span><span class="ab-name"></span><span class="ab-cd"></span></div>
     </div>
     <p id="hint" class="hint">WASD mover · clic en un enemigo para fijarlo · Q/E/R habilidades · Espacio cambiar Foco · F usar</p>
     <div id="player-state" hidden data-x="0" data-y="0" data-hp="100"></div>
@@ -105,8 +116,9 @@
       </div>
     </div>
     <div id="result" class="result" hidden>
-      <div class="card">
-        <h2 id="result-title"></h2>
+      <div class="cofre">
+        <span class="hojas tl" aria-hidden="true"></span><span class="hojas tr" aria-hidden="true"></span>
+        <div class="placa titulo"><h2 id="result-title"></h2></div>
         <ul id="result-list" class="list"></ul>
         <button id="back-btn" class="primary">Volver a la sala</button>
       </div>

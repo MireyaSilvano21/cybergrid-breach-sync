@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200" viewBox="0 0 200 200">
+  <!-- Grano oscuro que se pone encima de un color plano (cuero, madera, placas). -->
+  <filter id="n" x="0" y="0" width="100%" height="100%">
+    <feTurbulence type="fractalNoise" baseFrequency=".7 .25" numOctaves="2" seed="11" stitchTiles="stitch"/>
+    <feColorMatrix values="0 0 0 0 .08  0 0 0 0 .03  0 0 0 0 .06  0 0 0 1.1 -.55"/>
+  </filter>
+  <rect width="200" height="200" filter="url(#n)"/>
+</svg>
