@@ -5,7 +5,7 @@ import { drawCharacter, OUTFITS, HEADS } from './rig';
 type Anim = 'quieto' | 'caminar' | ActionKind | 'morir';
 const ANIMS: [Anim, string][] = [['quieto', 'Quieto'], ['caminar', 'Caminar'], ['melee', 'Golpe'], ['shoot', 'Disparo'], ['cast', 'Lanzar'], ['hit', 'Recibir golpe'], ['morir', 'Morir']];
 const VIEWS_ES: [View | 'gira', string][] = [['front', 'Frente'], ['side', 'Lado'], ['back', 'Espalda'], ['gira', 'Girar']];
-const FOCOS: [string, string][] = [['vara', 'Vara'], ['anillo', 'Anillo'], ['', 'Ninguno']];
+const FOCOS: [string, string][] = [['vara', 'Vara'], ['anillo', 'Anillo'], ['martillo', 'Martillo'], ['daga', 'Daga'], ['arco', 'Arco'], ['orbe', 'Orbe'], ['campana', 'Campana'], ['grimorio', 'Grimorio'], ['', 'Ninguno']];
 const TEAM = '#ffb347';
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;

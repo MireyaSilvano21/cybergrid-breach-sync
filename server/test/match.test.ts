@@ -13,7 +13,7 @@ function setup(n = 1) {
   return { match, sent, getRecord: () => record };
 }
 
-type Extra = Partial<{ use: boolean; attack: boolean; interact: boolean; ax: number; ay: number; viewT: number; mx: number; my: number; dt: number; sp: number; swap: boolean; target: string | null; cast: { slot: 'Q' | 'E' | 'R'; x: number; y: number } }>;
+type Extra = Partial<{ use: boolean; attack: boolean; interact: boolean; ax: number; ay: number; viewT: number; mx: number; my: number; dt: number; sp: number; swap: boolean; fire: { x: number; y: number; n: number }; cast: { slot: 'Q' | 'E' | 'R'; x: number; y: number } }>;
 const input = (seq: number, extra: Extra = {}) =>
   ({ type: 'input' as const, seq, mx: 0, my: 0, dt: 0, sp: 1, swap: false, ax: 0, ay: 1, attack: false, interact: false, use: false, ...extra });
 
@@ -86,119 +86,5 @@ describe('Muerte y extracción', () => {
     const rec = getRecord();
     expect(rec.players[0].lootValue).toBe(itemValue(['orbe', 'esquirlas']));
     expect(rec.players[0].lootValue).toBe(ITEMS.orbe.value + ITEMS.esquirlas.value);
-  });
-});
-
-describe('Compensación de lag en los golpes', () => {
-  /** Simula que el objetivo estuvo frente al atacante y se movió fuera de alcance 120 ms después. */
-  function scenario() {
-    const ctx = setup(2);
-    const a = ctx.match.actor('p0')!, b = ctx.match.actor('p1')!;
-    const { x, y } = ctx.match.map.spawns[0]; // centro de una llegada: piso libre
-    a.x = x; a.y = y; b.hp = 100;
-    const now = Date.now();
-    b.history = [
-      { t: now - 400, x, y: y + 60 },
-      { t: now - 120, x, y: y + 60 },
-      { t: now - 100, x, y: y + 300 },
-      { t: now, x, y: y + 300 },
-    ];
-    b.x = x; b.y = y + 300; // posición actual: fuera de alcance
-    return { ...ctx, a, b, now };
-  }
-
-  it('acierta si el objetivo estaba en alcance en lo que vio el atacante', () => {
-    const { match, b, now, sent } = scenario();
-    match.handleInput('p0', input(1, { target: 'p1', viewT: now - 150 }));
-    match.tick(now);
-    expect(b.hp).toBeLessThan(100);
-    expect(sent.p0.some((m) => m.type === 'hit' && m.target === 'p1')).toBe(true);
-    match.stop();
-  });
-
-  it('sin compensación (instante actual) el mismo golpe falla', () => {
-    const { match, b, now } = scenario();
-    match.handleInput('p0', input(1, { target: 'p1' }));
-    match.tick(now);
-    expect(b.hp).toBe(100);
-    match.stop();
-  });
-
-  it('no retrocede más de 250 ms aunque el cliente lo pida', () => {
-    const { match, b, now } = scenario();
-    const { x, y } = match.map.spawns[0];
-    b.history = [{ t: now - 1000, x, y: y + 60 }, { t: now - 300, x, y: y + 300 }, { t: now, x, y: y + 300 }];
-    match.handleInput('p0', input(1, { target: 'p1', viewT: now - 900 }));
-    match.tick(now);
-    expect(b.hp).toBe(100);
-    match.stop();
-  });
-});
-
-describe('Combate estilo Albion', () => {
-  /** Dos jugadores frente a frente en una llegada (piso libre). */
-  function duel(dist: number) {
-    const ctx = setup(2);
-    const a = ctx.match.actor('p0')!, b = ctx.match.actor('p1')!;
-    ctx.match.map.tiles.fill(0); // campo abierto: la prueba no depende del mapa generado
-    const x = 20 * 64, y = 20 * 64;
-    a.x = x; a.y = y; b.x = x; b.y = y + dist;
-    a.history = []; b.history = [];
-    return { ...ctx, a, b };
-  }
-
-  it('el básico es automático sobre el objetivo fijado y respeta el ritmo del Foco', () => {
-    const { match, b } = duel(60);
-    let now = Date.now();
-    match.handleInput('p0', input(1, { target: 'p1' }));
-    for (let i = 0; i < 32; i++) match.tick(now + i * 33); // ~1 s con la Vara (1 golpe por segundo)
-    expect(b.hp).toBe(100 - 14 * 2); // golpe inmediato y otro al segundo
-    match.stop();
-  });
-
-  it('fuera de alcance no golpea; con el Anillo (7 casillas) sí', () => {
-    const { match, b } = duel(3 * 64);
-    const now = Date.now();
-    match.handleInput('p0', input(1, { target: 'p1' }));
-    match.tick(now);
-    expect(b.hp).toBe(100);
-    match.handleInput('p0', input(2, { swap: true }));
-    match.tick(now + 400);
-    match.tick(now + 800);
-    expect(b.hp).toBe(90);
-    match.stop();
-  });
-
-  it('Temblor daña y ralentiza en el radio; respeta la recarga', () => {
-    const { match, a, b } = duel(2 * 64);
-    const now = Date.now();
-    match.handleInput('p0', input(1, { cast: { slot: 'E', x: a.x, y: a.y } }));
-    expect(b.hp).toBe(92);
-    expect(b.slowUntil).toBeGreaterThan(now);
-    match.handleInput('p0', input(2, { cast: { slot: 'E', x: a.x, y: a.y } }));
-    expect(b.hp).toBe(92); // segunda vez rechazada por la recarga
-    match.stop();
-  });
-
-  it('la Andanada lanza 5 proyectiles que golpean al que está enfrente', () => {
-    const { match, a, b } = duel(3 * 64);
-    match.handleInput('p0', input(1, { swap: true }));
-    const now = Date.now();
-    match.tick(now);
-    match.handleInput('p0', input(2, { cast: { slot: 'R', x: a.x, y: a.y + 400 } }));
-    expect(match.projectiles.length).toBe(5);
-    for (let i = 1; i < 15; i++) match.tick(now + 600 + i * 33);
-    expect(b.hp).toBeLessThan(100);
-    match.stop();
-  });
-
-  it('nadie va más rápido de lo normal sin una embestida autorizada', () => {
-    const { match, a } = duel(400);
-    const x0 = a.x;
-    match.handleInput('p0', input(1, { mx: 1, dt: 0.1, sp: 5 }));
-    const now = Date.now();
-    for (let i = 0; i < 6; i++) match.tick(now + i * 33);
-    expect(a.x - x0).toBeLessThanOrEqual(230 * 0.1 + 1);
-    match.stop();
   });
 });

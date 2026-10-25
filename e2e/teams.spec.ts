@@ -25,9 +25,11 @@ test('Flujo de equipos: elegir equipo en la sala y no dañar al compañero', asy
   await expect(host.locator('#screen-game')).toBeVisible();
   await expect(guest.locator('#screen-game')).toBeVisible();
 
-  // El panel muestra al compañero y Tab no lo fija: nadie recibe daño.
+  // El panel muestra al compañero; un básico y el Temblor junto a él no le hacen daño.
   await expect(host.locator('#aliados .aliado', { hasText: guestName })).toBeVisible({ timeout: 5000 });
-  await host.keyboard.press('Tab');
+  const box = await host.locator('#game').boundingBox();
+  await host.mouse.move(box!.x + box!.width / 2, box!.y + box!.height / 2 + 40);
+  await host.mouse.down(); await host.mouse.up();
   await host.keyboard.press('e');
   await host.waitForTimeout(1500);
   expect(await hp(guest)).toBe(100);

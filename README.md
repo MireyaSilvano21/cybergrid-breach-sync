@@ -9,14 +9,26 @@ Videojuego web multijugador de extracción en tiempo real. Canvas 2D en el clien
 | Arquitectura de red y sockets | `server/src/index.ts` (WebSocket en `/ws`, solo con token), `server/src/game.ts` (posiciones, colisiones, daño y extracción calculados en el servidor a 30 Hz). Ping/pong cada 2 s medido en un Web Worker, latencia visible en el HUD. Compensación de lag en los golpes (el servidor revisa contra lo que vio el atacante, máx. 250 ms), ataque predicho en el cliente y búfer de interpolación adaptable a la variación de la red. |
 | Motor Canvas 2D y controles | `client/src/game.ts`: bucle con *delta time* (`requestAnimationFrame`), interpolación de jugadores remotos y predicción local con reconciliación por comandos (`shared/src/prediction.ts`: el servidor aplica cada tramo de movimiento en orden y confirma hasta cuál llegó; el cliente reaplica lo pendiente, así que no hay tirones aunque la red varíe). `client/src/input.ts`: teclado/mouse en PC; joystick y botones táctiles que solo aparecen en pantallas táctiles. |
 | Endpoints de prueba | `GET /api/test/telemetry` (Win Rate, KDR, supervivencia y valor promedio extraído; agregados O(1)) y `POST /api/test/seed` (100–1000 partidas, validado con Zod). |
-| Pruebas y CI | 87 pruebas en Vitest (`shared/test`, `server/test`), 10 flujos en Playwright (`e2e/`: acceso, campamento con escuadra y emparejamiento, lobbies, equipos, canvas en PC y móvil, arrastre táctil, saqueo y combate), pipeline en `.github/workflows/ci.yml` en cada Pull Request. |
+| Pruebas y CI | 90 pruebas en Vitest (`shared/test`, `server/test`), 11 flujos en Playwright (`e2e/`: acceso, campamento con escuadra y emparejamiento, lobbies, equipos, canvas en PC y móvil, arrastre táctil, saqueo, combate apuntado en PC y combate táctil), pipeline en `.github/workflows/ci.yml` en cada Pull Request. |
 | Despliegue | `render.yaml` (Render, un solo servicio con SSL). |
 
 ## Bucle de juego actual
 
 Cada equipo aparece junto a un cofre. Los cofres salen de las plantillas de sala y su tipo depende de la función de la sala: Cofre de la Forja en llegadas y galerías, Sarcófago Rúnico en los osarios, Arcón Ornamentado en santuarios y bóvedas (3 objetos, tabla rara) y un único Relicario Antiguo en el Corazón (4 objetos). Cada uno tiene tres estados: cerrado, abierto y vacío. Con **F** (o el botón **Usar** en móvil) se abre el cofre y con otra pulsación se toma el botín, que va a una mochila de 10 casillas validada en el servidor. Al morir, el botín queda en el suelo como **Restos** que cualquiera puede saquear; al extraer por un portal abierto, su valor se registra en la telemetría.
 
-### Campamento (lobby estilo Delta Force)
+### Combate apuntado (estilo Brawl Stars)
+
+Todo se apunta: al **mantener** clic izquierdo o Q/E/R aparece en el piso la forma y el alcance real (línea, cono, zona, círculo propio o salto) y al **soltar** sale hacia el cursor; clic derecho o Esc cancela. En móvil, arrastrar el botón apunta, regresar al botón cancela y un toque rápido apunta solo al rival más cercano. El básico gasta una de **3 cargas** que se recargan al ritmo del Foco en la mano. Los proyectiles viajan y se pueden esquivar (el servidor los simula; el disparo propio se dibuja al instante con predicción) y los golpes en arco usan compensación de lag.
+
+| Escuela | Q | E |
+|---|---|---|
+| Tharvén (asalto) | Llamar a la Piedra: embestida que empuja | Temblor: onda que ralentiza |
+| Seléth (sigilo) | Velo del Olvido: invisible 3.5 s (atacar te descubre) | Paso sin Nombre: parpadeo que no atraviesa muros |
+| Vaerel (soporte) | Hilo de Vida: cura en área | Atadura: proyectil que inmoviliza |
+| Orrath (reconocimiento) | Escuchar al Viento: revela rivales cercanos a través de muros | Ráfaga: cono que empuja |
+
+Los 8 Focos (dos por build, cambio con Espacio) traen su básico y su Inscripción (R): Vara de Fresno (arco · Barrido), Anillo de Ámbar (disparo · Andanada), Martillo de Basalto (arco pesado · Fractura), Daga de Ceniza (cortes rápidos · Corte espectral), Arco de Fresno (flecha larga · Lluvia de flechas), Orbe de Hilo (esfera lenta · Vínculo, curación), Campana del Viento (onda corta · Eco) y Grimorio Vacío (página que atraviesa · Grieta). Todo está definido en `shared/src/abilities.ts`.
+
 
 Después de entrar, el lobby tiene tres pestañas:
 
