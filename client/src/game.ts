@@ -203,7 +203,9 @@ export class Game {
   constructor(private root: HTMLElement, private net: Net, start: { seed: number; players: number; x: number; y: number; you?: string; team?: number }) {
     const canvas = root.querySelector('canvas')!;
     // Lienzo opaco (el navegador no mezcla con lo de atrás) y de baja latencia donde se soporte.
-    this.ctx = (canvas.getContext('2d', { alpha: false, desynchronized: true }) ?? canvas.getContext('2d'))!;
+    // Lienzo opaco, pero sincronizado con la pantalla: el modo desynchronized (baja latencia) dibuja
+    // directo al búfer frontal y en varios celulares Android deja píxeles de colores al moverse.
+    this.ctx = (canvas.getContext('2d', { alpha: false }) ?? canvas.getContext('2d'))!;
     this.map = generateValidMap(start.seed, start.players);
     this.wallKeys = new Int16Array(this.map.width * this.map.height).fill(-1);
     // Solo se dibujan los muros que tocan algo recorrible; el resto es oscuridad (como en un plano de mazmorra).

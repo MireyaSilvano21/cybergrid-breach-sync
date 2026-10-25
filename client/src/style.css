@@ -20,6 +20,8 @@
 }
 *{box-sizing:border-box}
 html,body{height:100%;margin:0;background:var(--void);color:var(--text);font-family:var(--body);overscroll-behavior:none}
+/* Sin el recuadro azul que pinta el navegador del celular al tocar botones (los botones ya tienen su propio estado presionado). */
+html{-webkit-tap-highlight-color:transparent}
 [hidden]{display:none!important}
 .screen{position:fixed;inset:0}
 .mono{font-variant-numeric:tabular-nums}
