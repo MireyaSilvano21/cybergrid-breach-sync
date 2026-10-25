@@ -4,6 +4,7 @@ import { Game } from './game';
 import { TEAMS, MAX_TEAM_SIZE } from '@shared/index';
 import { HubUI } from './hubui';
 import { setupSplash } from './fullscreen';
+import { preloadFocos } from './focos-art';
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 const screens = ['screen-login', 'screen-lobby', 'screen-game'] as const;
@@ -155,6 +156,8 @@ net.on('lobby', (m) => {
 });
 // Campamento: escuadra, preparación y emparejamiento.
 hub = new HubUI(net, () => currentRoom !== null);
+// Las armas se cargan desde el campamento para que ya estén listas en la partida.
+preloadFocos();
 
 $('ready-btn').addEventListener('click', () => net.send({ type: 'ready', ready: $('ready-btn').getAttribute('aria-pressed') !== 'true' }));
 $('leave-btn').addEventListener('click', () => { net.send({ type: 'leave' }); currentRoom = null; $('room-panel').hidden = true; refreshRooms(); });

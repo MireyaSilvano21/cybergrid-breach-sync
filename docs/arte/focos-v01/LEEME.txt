@@ -1,0 +1,56 @@
+CYBERGRID · FOCOS v01
+Entrega: 10 Focos, un proyectil independiente y sus capas de emisión.
+
+CONTENIDO
+32 PNG de producción en la raíz: 11 bases, 11 capas de brillo y 10 íconos.
+armas.json: coordenadas de agarre por archivo. Origen (0,0) arriba a la
+izquierda; X crece a la derecha e Y hacia abajo, en píxeles del lienzo.
+Las capas de brillo repiten el agarre de su base para mantener el registro.
+prompts.json: prompts base y refinamientos conservados.
+QA/: vistas sobre #1C1222 y el pergamino aprobado; marcadores de agarre
+solo en QA. Incluye lectura de armas a 70/128 px y tiza a 128/96/48/32 px.
+validacion.json y SHA256SUMS.txt: resultados técnicos e integridad.
+
+DIMENSIONES Y FORMATO
+256 × 512: daga, gemelas, revolver y arco_flecha.
+256 × 768: llama, cetro_lunar, lanza y cetro_rubi.
+384 × 768: guadana, martillo y arco.
+PNG RGBA de 8 bits, alfa recto. Sin fondo ni sombra proyectada.
+Margen mínimo de armas: 12 px en esta exportación; mínimo pedido: 8 px.
+El contorno oscuro se normaliza a #1D0C16 en las zonas detectadas de tinta.
+
+BRILLO
+Cada foco_<id>_brillo.png ocupa exactamente el lienzo de su base y conserva
+la posición de los detalles. No recortar ni centrar la capa por separado.
+RGB fijo según ficha; el alfa contiene cobertura e intensidad. Sin halo ni
+desenfoque incorporado. Asignar a la entrada de emisión del material y
+ajustar la intensidad en el motor. No se ha probado dentro del juego.
+Colores RGB: daga 255,90,90; llama 255,180,60; lunar 230,160,255;
+lanza 255,140,50; guadana 255,80,110; gemelas 180,200,255;
+martillo 255,170,140; rubi 255,70,80; revolver 170,200,255;
+arco y flecha 255,250,230.
+
+CASOS ESPECIALES
+Gemelas: una sola hoja en el PNG de arma; reflejar horizontalmente para
+la otra mano. Reflejar también su capa de brillo y el punto de agarre:
+x_reflejado = ancho - 1 - x. El ícono sí muestra dos espadas cruzadas.
+Arco: flecha aparte de 256 × 512 con capa adicional de brillo para su punta.
+El agarre de la flecha está en el tramo trasero de la vara, no en el culatín.
+Revólver: seis runas en el tambor; el colgante no entra en la capa emisiva.
+
+TIZA
+tiza-<id>.png: 128 × 128, RGB 255,255,255, forma y grano en alfa.
+Trazo nominal 9 px medido perpendicularmente al eje; cruces y encuentros
+son naturalmente más anchos. Margen vacío de al menos 12 px.
+Grano tomado de tiza-textura.png del Lote B aprobado. El blanco sobre
+pergamino tiene contraste bajo por especificación; no se añadió contorno.
+
+REVISIÓN Y PROCEDENCIA
+Diseños generados desde las fichas; referencia de estilo propia del juego.
+Las imágenes de otros artistas NO se emplearon como entradas de generación.
+Los diez archivos de referencia citados en el documento no estaban disponibles;
+queda pendiente la comparación visual directa exigida por el encargo.
+Se revisaron siluetas, máscaras emisivas, agarres y legibilidad en las láminas.
+La lectura de detalles finos disminuye al reducir a 70 px; usar el ícono de
+tiza para identificación en el HUD. La revisión visual final corresponde
+a dirección de arte; este paquete no implica aprobación dentro del motor.
