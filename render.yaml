@@ -18,3 +18,6 @@ services:
         value: "1"
       - key: MIN_PLAYERS
         value: "1"
+      # Cadena de conexión de Neon; se escribe en el panel de Render, nunca en el repositorio.
+      - key: DATABASE_URL
+        sync: false

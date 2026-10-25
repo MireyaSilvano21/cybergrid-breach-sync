@@ -1,4 +1,5 @@
 import { createRng, randInt, type MatchRecord } from '@shared/index';
+import type { Totals } from './db';
 
 export interface TelemetrySummary {
   matches: number;
@@ -16,11 +17,11 @@ export interface TelemetrySummary {
  * para responder /api/test/telemetry muy por debajo de 200 ms con miles de partidas.
  */
 export class TelemetryStore {
-  private records: MatchRecord[] = [];
+  private n = 0;
   private agg = { entries: 0, wins: 0, kills: 0, deaths: 0, survival: 0, duration: 0, loot: 0 };
 
   add(m: MatchRecord) {
-    this.records.push(m);
+    this.n++;
     this.agg.duration += m.durationS;
     for (const p of m.players) {
       this.agg.entries++;
@@ -34,15 +35,22 @@ export class TelemetryStore {
 
   addMany(ms: MatchRecord[]) { for (const m of ms) this.add(m); }
 
+  /** Suma los totales guardados en la base (se llama una vez al arrancar el servidor). */
+  restore(t: Totals) {
+    this.n += t.matches;
+    const a = this.agg;
+    a.entries += t.entries; a.wins += t.wins; a.kills += t.kills; a.deaths += t.deaths; a.survival += t.survival; a.duration += t.duration; a.loot += t.loot;
+  }
+
   reset() {
-    this.records = [];
+    this.n = 0;
     this.agg = { entries: 0, wins: 0, kills: 0, deaths: 0, survival: 0, duration: 0, loot: 0 };
   }
 
-  get count() { return this.records.length; }
+  get count() { return this.n; }
 
   summary(): TelemetrySummary {
-    const a = this.agg, n = this.records.length;
+    const a = this.agg, n = this.n;
     const r = (v: number) => Math.round(v * 1000) / 1000;
     return {
       matches: n,

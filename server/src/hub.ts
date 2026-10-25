@@ -16,6 +16,8 @@ export interface HubDeps {
   busy: (connId: string) => boolean;
   /** Arranca una partida con estos jugadores; cada escuadra es un equipo. */
   start: (entries: { conn: Conn; team: number }[], onEnd: () => void) => void;
+  /** Perfiles guardados por nombre de usuario (se cargan de la base al arrancar). */
+  profiles?: { get(username: string): Profile | undefined; save(username: string, p: Profile): void };
 }
 
 const ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
@@ -40,7 +42,7 @@ export class Hub {
 
   connect(conn: Conn) {
     this.conns.set(conn.id, conn);
-    this.profiles.set(conn.id, defaultProfile(conn.name));
+    this.profiles.set(conn.id, this.deps.profiles?.get(conn.name) ?? defaultProfile(conn.name));
     this.solo(conn.id);
     this.broadcastOnline();
   }
@@ -52,8 +54,10 @@ export class Hub {
   }
 
   setProfile(id: string, p: Profile) {
-    if (!this.conns.has(id)) return;
+    const conn = this.conns.get(id);
+    if (!conn) return;
     this.profiles.set(id, p);
+    this.deps.profiles?.save(conn.name, p);
     const party = this.party(id); if (party) this.sendParty(party);
   }
 
