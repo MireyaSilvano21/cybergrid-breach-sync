@@ -64,6 +64,22 @@ export interface GridMap {
   props: MapProp[];
   /** Estado de los sellos (cambia durante la partida). */
   sealsOpen: { vault: boolean; heart: boolean };
+  /** Casillas de sello de cada bóveda mayor (índices de casilla), en el orden de giro del mapa. */
+  vaultSeals?: number[][];
+}
+
+/** Abre una bóveda mayor: sus sellos pasan a ser piso (servidor y cliente hacen lo mismo). */
+export function openVault(map: GridMap, i: number) {
+  for (const idx of map.vaultSeals?.[i] ?? []) if (map.tiles[idx] === SEAL_VAULT) map.tiles[idx] = FLOOR;
+}
+
+/** Centro de los sellos de una bóveda mayor. */
+export function vaultCenter(map: GridMap, i: number): Point | null {
+  const seals = map.vaultSeals?.[i];
+  if (!seals?.length) return null;
+  let x = 0, y = 0;
+  for (const idx of seals) { x += (idx % map.width) + 0.5; y += Math.floor(idx / map.width) + 0.5; }
+  return { x: (x / seals.length) * TILE, y: (y / seals.length) * TILE };
 }
 
 export function modulesForPlayers(players: number): number {
@@ -371,10 +387,19 @@ export function generateMap(seed: number, players = 12): GridMap {
   const layout: ModuleInfo[] = [];
   for (let my = 0; my < M; my++) for (let mx = 0; mx < M; mx++) layout.push({ mx, my, type: modRole.get(`${mx},${my}`) ?? 'vacio' });
   const pair: [number, number] = rng() < 0.5 ? [0, 2] : [1, 3];
+  // Sellos de bóveda agrupados por módulo, en el mismo orden de giro que llegadas y portales.
+  const sealGroups = new Map<string, number[]>();
+  tiles.forEach((t, i) => {
+    if (t !== SEAL_VAULT) return;
+    const k = `${Math.floor((i % W) / N)},${Math.floor(Math.floor(i / W) / N)}`;
+    sealGroups.set(k, [...(sealGroups.get(k) ?? []), i]);
+  });
+  const sealCenter = (g: number[]): Point => ({ x: (g.reduce((a, i) => a + (i % W), 0) / g.length + 0.5) * TILE, y: (g.reduce((a, i) => a + Math.floor(i / W), 0) / g.length + 0.5) * TILE });
+  const vaultSeals = [...sealGroups.values()].sort((a, b) => quad(sealCenter(a)) - quad(sealCenter(b)));
   return {
     seed, modules: M, width: W, height: W, tiles, layout, spawns, portalCandidates: portalsC,
     portals: portalsC.length >= 4 ? pair : [0, Math.min(1, portalsC.length - 1)] as [number, number],
-    monoliths, vault: relic, chestSpots, props, sealsOpen: { vault: false, heart: false },
+    monoliths, vault: relic, chestSpots, props, sealsOpen: { vault: false, heart: false }, vaultSeals,
   };
 }
 

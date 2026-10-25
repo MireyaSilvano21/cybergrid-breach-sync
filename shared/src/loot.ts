@@ -44,7 +44,7 @@ export function addToInventory(inventory: string[], incoming: string[], capacity
 }
 
 /** Tabla de los cofres raros: más reliquias grandes y nada de moneda suelta. */
-const RARE_TABLE: [string, number][] = [
+export const RARE_TABLE: [string, number][] = [
   ['tonico', 10], ['sal', 8], ['idolo', 20], ['orbe', 22], ['martillo', 20], ['corona', 20],
 ];
 

@@ -49,6 +49,8 @@ export const ClientMessageSchema = z.discriminatedUnion('type', [
     cast: z.object({ slot: z.enum(['Q', 'E', 'R']), x: z.number().finite(), y: z.number().finite(), n: z.number().int().nonnegative().max(1e9).optional() }).optional(),
     /** Cambio rápido de Foco. */
     swap: z.boolean().default(false),
+    /** Prueba de Nombre: ángulo (rad) en que el jugador vio la aguja al tocar. */
+    name: z.number().min(0).max(7).optional(),
   }),
 ]);
 export type ClientMessage = z.infer<typeof ClientMessageSchema>;

@@ -155,6 +155,10 @@ button:focus-visible,input:focus-visible{outline:3px solid var(--gold-l);outline
 .reso[data-marked="true"] #reso-bar{background:#ff5a64}
 .reso[data-marked="true"] .reso-txt{color:#ff7a80;font-weight:700;animation:reso-late 1s ease-in-out infinite}
 @keyframes reso-late{50%{opacity:.55}}
+/* Ritual del monolito de tu equipo: oleada, integridad y progreso; rojo si espera la prueba de Nombre. */
+.ritual{font-family:var(--sketch);font-size:.85rem;color:var(--chalk-mint);text-shadow:0 0 6px #000;margin-top:2px}
+.ritual[hidden]{display:none}
+.ritual[data-phase="reparar"]{color:#ff7a80;animation:reso-late 1s ease-in-out infinite}
 
 /* Barra de habilidades (PC): recuadros de tiza con ícono, tecla y recarga. */
 .abil{position:absolute;left:50%;transform:translateX(-50%);bottom:calc(104px + env(safe-area-inset-bottom));display:flex;gap:12px;pointer-events:none}
