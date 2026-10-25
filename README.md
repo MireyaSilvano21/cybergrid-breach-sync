@@ -33,7 +33,10 @@ Se genera un cuarto del mapa y se copia girado 90° alrededor del centro (simetr
 
 El cliente dibuja todo en Canvas 2D con contorno de tinta ciruela y luces saturadas: piso de losas generado por trozos de 8×8 casillas (caché LRU), muros en tres cuartos con cara y tapa, antorchas, monolitos con runas, estrado de portal con remolino, pasto que se aparta al pasar y personajes animados por piezas que miran hacia donde apuntan. La oscuridad se calcula a media resolución y la visión del jugador sigue siendo el mismo radio para todos (`VISION_RADIUS`). Los sprites de los cofres están normalizados a 256×256 en WebP con la base al 94 % de la altura, así los tres estados encajan sin saltos.
 
-### Personajes por piezas (esqueleto)
+### Interfaz: madera en los menús, tiza en la partida
+
+El acceso es la tapa de un tomo de cuero, el lobby un libro abierto (crear y elegir sala en una página, la sala en la otra) y los resultados un cofre de madera. En la partida el HUD está dibujado con tiza para no tapar el juego: vida en tramos, brújula con la fase y el tiempo, habilidades con su ícono y recarga, mochila y sincronización con el portal. Las piezas están en `client/public/assets/ui/` como archivos sueltos (SVG provisionales) para que el arte final las reemplace con el mismo nombre; la textura de tiza se aplica como máscara, así un solo ícono blanco sirve en cualquier color.
+
 
 Cada personaje es una combinación de **tipo de cuerpo** (medio, esbelto alto, fornido, bajo y ágil), **ropa** (2 por escuela) y **cabeza** (6), con el Foco en la mano y una faja con el color del equipo. `shared/src/rig.ts` define las articulaciones de las tres vistas (frente, lado y espalda), 17 huesos, la cinemática directa y las animaciones (quieto, caminar, golpe, disparo, lanzar, recibir golpe y morir). `client/src/rig.ts` dibuja las piezas sobre los huesos; por ahora son piezas provisionales con el estilo del juego y, cuando lleguen las piezas del artista, se dibujan en los mismos huesos. El visor `/rig.html` muestra todas las combinaciones, animaciones y huesos. Las plantillas para el artista (lienzo de 2508×1254 por cuerpo y su `rig.json`) están en `docs/diseno/esqueleto/`.
 

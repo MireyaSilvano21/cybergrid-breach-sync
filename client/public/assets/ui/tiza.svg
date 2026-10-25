@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
+  <!-- Máscara de tiza: grano con huecos y grietas. Se usa como mask-image en barras, marcos e íconos. -->
+  <filter id="n" x="0" y="0" width="100%" height="100%">
+    <feTurbulence type="fractalNoise" baseFrequency=".85" numOctaves="2" seed="5" stitchTiles="stitch"/>
+    <feColorMatrix values="0 0 0 0 1  0 0 0 0 1  0 0 0 0 1  0 0 0 -2.6 2.05"/>
+  </filter>
+  <mask id="c">
+    <rect width="256" height="256" fill="#fff"/>
+    <g fill="none" stroke="#000" stroke-linecap="round" stroke-linejoin="round">
+      <path stroke-width="1.6" d="M0 40L22 46L40 38L64 52L90 47M120 0L116 18L128 34L122 56M200 30L214 44L240 40L256 50M30 140L52 150L60 172L84 178M150 120L170 132L196 126L208 146L232 150M100 210L118 220L140 214L150 236L176 242M240 180L226 196L232 222M0 100L14 110M70 90L84 100L82 118"/>
+      <path stroke-width=".9" d="M64 52L70 66M196 126L190 108M60 172L48 190M140 214L136 196M14 110L28 104"/>
+    </g>
+  </mask>
+  <rect width="256" height="256" fill="#fff" filter="url(#n)" mask="url(#c)"/>
+</svg>

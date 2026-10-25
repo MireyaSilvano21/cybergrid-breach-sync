@@ -291,6 +291,7 @@ export class Game {
     for (const [id, r] of this.remotes) if (now - r.seen > 500) this.remotes.delete(id);
     this.syncCombat(m, now);
     this.el.hpBar.style.width = `${m.you.hp}%`;
+    this.el.hpBar.closest<HTMLElement>('.vida')?.toggleAttribute('data-low', m.you.alive && m.you.hp <= 30);
     this.el.hpText.textContent = String(Math.ceil(m.you.hp));
     this.el.phase.textContent = PHASE_LABEL[m.phase] ?? m.phase;
     const s = m.timeLeft; this.el.timer.textContent = `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
@@ -747,11 +748,13 @@ export class Game {
     const now = performance.now();
     for (const el of this.abEls) {
       const slot = el.dataset.slot as Slot | 'S';
-      let name: string, left: number, total: number;
-      if (slot === 'S') { const f = FOCOS[this.build.focos[this.foco]]; name = f.name; left = this.swapUntil - now; total = SWAP_MS; }
-      else { const ab = abilityFor(this.build, this.foco, slot); name = ab.name; left = Math.max((this.cdById[ab.id] ?? 0) - now, this.gcdUntil - now); total = Math.max(ab.cd * 1000, GCD_MS); }
+      let name: string, left: number, total: number, id: string;
+      if (slot === 'S') { const f = FOCOS[this.build.focos[this.foco]]; name = f.name; id = f.id; left = this.swapUntil - now; total = SWAP_MS; }
+      else { const ab = abilityFor(this.build, this.foco, slot); name = ab.name; id = ab.id; left = Math.max((this.cdById[ab.id] ?? 0) - now, this.gcdUntil - now); total = Math.max(ab.cd * 1000, GCD_MS); }
       const nm = el.querySelector<HTMLElement>('.ab-name'); if (nm && nm.textContent !== name) nm.textContent = name;
       if (el.title !== name) el.title = name;
+      // El ícono de tiza sale de la hoja de estilos según la habilidad o el Foco.
+      if (el.dataset.ability !== id) el.dataset.ability = id;
       const cd = el.querySelector<HTMLElement>('.ab-cd');
       if (cd) {
         const p = left > 0 ? Math.min(1, left / total) : 0;
