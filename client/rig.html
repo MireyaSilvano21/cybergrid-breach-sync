@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>CyberGrid · Esqueleto de personajes</title>
+  <meta name="theme-color" content="#0b0610" />
+  <link rel="icon" href="/icon-192.png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Grenze+Gotisch:wght@600;700&family=Alegreya+Sans:wght@400;500;700&display=swap" />
+  <style>
+    :root { --bg: #0b0610; --panel: #1a1022; --line: #3a2848; --text: #efe4d2; --muted: #a897b4; --acc: #ffb347; }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.4 'Alegreya Sans', system-ui, sans-serif; }
+    header { padding: 14px 16px 6px; }
+    h1 { font: 700 28px 'Grenze Gotisch', Georgia, serif; margin: 0; color: var(--acc); }
+    header p { margin: 2px 0 0; color: var(--muted); }
+    .wrap { display: grid; grid-template-columns: 300px 1fr; gap: 14px; padding: 10px 16px 24px; }
+    @media (max-width: 760px) { .wrap { grid-template-columns: 1fr; } }
+    .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 12px; }
+    label { display: block; font-size: 13px; color: var(--muted); margin: 10px 0 4px; }
+    .seg { display: flex; flex-wrap: wrap; gap: 6px; }
+    .seg button { background: #251832; color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; font: inherit; cursor: pointer; }
+    .seg button.on { background: var(--acc); color: #1d0c16; border-color: var(--acc); font-weight: 700; }
+    select { width: 100%; background: #251832; color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 7px; font: inherit; }
+    .check { display: flex; gap: 8px; align-items: center; margin-top: 12px; color: var(--text); }
+    canvas { display: block; width: 100%; border-radius: 12px; border: 1px solid var(--line); background: #2a2538; }
+    #stage { aspect-ratio: 16 / 10; }
+    #gallery { aspect-ratio: 16 / 7; margin-top: 14px; }
+    .hint { color: var(--muted); font-size: 13px; margin-top: 10px; }
+    a { color: var(--acc); }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Esqueleto de personajes</h1>
+    <p>Animación por piezas con piezas provisionales. Cuando lleguen las piezas de Astra se dibujan en los mismos huesos.</p>
+  </header>
+  <div class="wrap">
+    <aside class="panel">
+      <label>Animación</label>
+      <div class="seg" id="anim"></div>
+      <label>Vista</label>
+      <div class="seg" id="view"></div>
+      <label for="body">Tipo de cuerpo</label>
+      <select id="body"></select>
+      <label for="outfit">Ropa</label>
+      <select id="outfit"></select>
+      <label for="head">Cabeza</label>
+      <select id="head"></select>
+      <label>Foco en la mano</label>
+      <div class="seg" id="foco"></div>
+      <label class="check"><input type="checkbox" id="bones" checked /> Mostrar huesos y articulaciones</label>
+      <p class="hint">Abajo: las 8 ropas sobre los 4 cuerpos al tamaño real del juego (unos 70 px).</p>
+      <p class="hint"><a href="/">Volver al juego</a></p>
+    </aside>
+    <main>
+      <canvas id="stage"></canvas>
+      <canvas id="gallery"></canvas>
+    </main>
+  </div>
+  <script type="module" src="/src/rigviewer.ts"></script>
+</body>
+</html>

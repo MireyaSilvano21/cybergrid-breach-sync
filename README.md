@@ -9,7 +9,7 @@ Videojuego web multijugador de extracción en tiempo real. Canvas 2D en el clien
 | Arquitectura de red y sockets | `server/src/index.ts` (WebSocket en `/ws`, solo con token), `server/src/game.ts` (posiciones, colisiones, daño y extracción calculados en el servidor a 30 Hz). Ping/pong cada 2 s medido en un Web Worker, latencia visible en el HUD. Compensación de lag en los golpes (el servidor revisa contra lo que vio el atacante, máx. 250 ms), ataque predicho en el cliente y búfer de interpolación adaptable a la variación de la red. |
 | Motor Canvas 2D y controles | `client/src/game.ts`: bucle con *delta time* (`requestAnimationFrame`), interpolación de jugadores remotos y predicción local con reconciliación por comandos (`shared/src/prediction.ts`: el servidor aplica cada tramo de movimiento en orden y confirma hasta cuál llegó; el cliente reaplica lo pendiente, así que no hay tirones aunque la red varíe). `client/src/input.ts`: teclado/mouse en PC; joystick y botones táctiles que solo aparecen en pantallas táctiles. |
 | Endpoints de prueba | `GET /api/test/telemetry` (Win Rate, KDR, supervivencia y valor promedio extraído; agregados O(1)) y `POST /api/test/seed` (100–1000 partidas, validado con Zod). |
-| Pruebas y CI | 60 pruebas en Vitest (`shared/test`, `server/test`), 8 flujos en Playwright (`e2e/`: acceso, lobbies, canvas en PC y móvil, arrastre táctil, saqueo y combate), pipeline en `.github/workflows/ci.yml` en cada Pull Request. |
+| Pruebas y CI | 66 pruebas en Vitest (`shared/test`, `server/test`), 8 flujos en Playwright (`e2e/`: acceso, lobbies, canvas en PC y móvil, arrastre táctil, saqueo y combate), pipeline en `.github/workflows/ci.yml` en cada Pull Request. |
 | Despliegue | `render.yaml` (Render, un solo servicio con SSL). |
 
 ## Bucle de juego actual
@@ -31,9 +31,12 @@ Se genera un cuarto del mapa y se copia girado 90° alrededor del centro (simetr
 
 ### Estilo visual "Forja Apagada"
 
-El cliente dibuja todo en Canvas 2D con contorno de tinta ciruela y luces saturadas: piso de losas generado por trozos de 8×8 casillas (caché LRU), muros en tres cuartos con cara y tapa, antorchas, monolitos con runas, estrado de portal con remolino, pasto que se aparta al pasar y personajes con túnica que miran hacia donde apuntan. La oscuridad se calcula a media resolución y la visión del jugador sigue siendo el mismo radio para todos (`VISION_RADIUS`). Los sprites de los cofres están normalizados a 256×256 en WebP con la base al 94 % de la altura, así los tres estados encajan sin saltos.
+El cliente dibuja todo en Canvas 2D con contorno de tinta ciruela y luces saturadas: piso de losas generado por trozos de 8×8 casillas (caché LRU), muros en tres cuartos con cara y tapa, antorchas, monolitos con runas, estrado de portal con remolino, pasto que se aparta al pasar y personajes animados por piezas que miran hacia donde apuntan. La oscuridad se calcula a media resolución y la visión del jugador sigue siendo el mismo radio para todos (`VISION_RADIUS`). Los sprites de los cofres están normalizados a 256×256 en WebP con la base al 94 % de la altura, así los tres estados encajan sin saltos.
 
-## Estructura
+### Personajes por piezas (esqueleto)
+
+Cada personaje es una combinación de **tipo de cuerpo** (medio, esbelto alto, fornido, bajo y ágil), **ropa** (2 por escuela) y **cabeza** (6), con el Foco en la mano y una faja con el color del equipo. `shared/src/rig.ts` define las articulaciones de las tres vistas (frente, lado y espalda), 17 huesos, la cinemática directa y las animaciones (quieto, caminar, golpe, disparo, lanzar, recibir golpe y morir). `client/src/rig.ts` dibuja las piezas sobre los huesos; por ahora son piezas provisionales con el estilo del juego y, cuando lleguen las piezas del artista, se dibujan en los mismos huesos. El visor `/rig.html` muestra todas las combinaciones, animaciones y huesos. Las plantillas para el artista (lienzo de 2508×1254 por cuerpo y su `rig.json`) están en `docs/diseno/esqueleto/`.
+
 
 ```
 shared/   Lógica compartida cliente-servidor: mapa procedural con semilla, física, daño,

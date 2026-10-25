@@ -84,33 +84,12 @@ export function tintCopy(src: CanvasImageSource & { width: number; height: numbe
 const st = (c: string, w: number) => `stroke="${c}" stroke-width="${w}" stroke-linejoin="round" stroke-linecap="round"`;
 const svg = (w: number, h: number, b: string) => `<svg xmlns="http://www.w3.org/2000/svg" width="${w * 2}" height="${h * 2}" viewBox="0 0 ${w} ${h}">${b}</svg>`;
 
-export interface Robe { robe: string; fold: string; hood: string; trim: string }
-/** Túnica propia en ámbar; la de los demás en violeta para distinguirlos de un vistazo. */
-export const ROBES: Record<'me' | 'other', Robe> = {
-  me: { robe: '#e3922f', fold: '#a8601c', hood: '#7e3a1c', trim: '#ffd36a' },
-  other: { robe: '#8a6ad0', fold: '#5d4396', hood: '#3f2a6a', trim: '#e2c8ff' },
-};
-
-function robeSvg(c: Robe, view: 'front' | 'side' | 'back'): string {
-  const body = `<path d="M24 8C12 8 9 19 10 29C7 41 5 52 6 60H42C43 52 41 41 38 29C39 19 36 8 24 8Z" fill="${c.robe}" ${st(INK, 3.5)}/><path d="M15 40C17 50 16 56 15 60M33 40C31 50 32 56 33 60" fill="none" ${st(c.fold, 3)}/>`;
-  const trim = view === 'back' ? '' : `<path d="M17 35L24 41L31 35" fill="none" ${st(c.trim, 2.5)}/>`;
-  const hood = view === 'side'
-    ? `<path d="M22 3C12 3 9 13 10 24C14 31 34 31 38 24C39 13 33 3 22 3Z" fill="${c.hood}" ${st(INK, 3.5)}/>`
-    : view === 'back'
-      ? `<path d="M24 3C13 3 9 13 10 26C16 33 32 33 38 26C39 13 35 3 24 3Z" fill="${c.hood}" ${st(INK, 3.5)}/><path d="M24 6V28" fill="none" ${st(shade(c.hood, -0.3), 2.5)}/>`
-      : `<path d="M24 3C13 3 9 13 10 24C14 31 34 31 38 24C39 13 35 3 24 3Z" fill="${c.hood}" ${st(INK, 3.5)}/>`;
-  const face = view === 'side'
-    ? '<ellipse cx="30" cy="20" rx="7" ry="7" fill="#1a0a10"/><circle cx="32" cy="20" r="2.2" fill="#ffe7a8"/>'
-    : view === 'front' ? '<ellipse cx="24" cy="20" rx="9" ry="7" fill="#1a0a10"/><circle cx="20.5" cy="20" r="2.2" fill="#ffe7a8"/><circle cx="27.5" cy="20" r="2.2" fill="#ffe7a8"/>' : '';
-  return svg(48, 64, body + trim + hood + face);
-}
-
 const STAFF = svg(14, 60, `<rect x="5" y="14" width="4" height="44" rx="2" fill="#6b4226" ${st(INK, 2.5)}/><path d="M7 2L13 10L7 18L1 10Z" fill="#ffb347" ${st(INK, 2.5)}/>`);
 const SKULL = svg(24, 20, `<path d="M12 2C4 2 2 8 3 12C4 15 6 15 6 18H18C18 15 20 15 21 12C22 8 20 2 12 2Z" fill="#e8dcc6" ${st(INK, 2.5)}/><circle cx="8.5" cy="10" r="2.3" fill="${INK}"/><circle cx="15.5" cy="10" r="2.3" fill="${INK}"/>`);
 const FLAME = svg(40, 52, `<path d="M20 50C6 46 4 30 12 20C12 28 16 30 18 26C14 16 20 6 26 2C24 14 36 18 34 32C40 30 38 22 38 22C44 34 36 48 20 50Z" fill="#ff6a1a" ${st('#3a0d08', 3)}/><path d="M20 46C12 42 14 32 18 28C20 34 24 34 24 30C30 34 30 44 20 46Z" fill="#ffd56a"/>`);
 const SCONCE = svg(30, 26, `<path d="M4 4H26L20 16H10Z" fill="#3e3446" ${st(INK, 3)}/><path d="M8 7H22" fill="none" ${st('#ff8a2a', 2)}/><path d="M15 16V24" fill="none" ${st(INK, 4)}/>`);
 
-export type ImgKey = 'staff' | 'skull' | 'flame' | 'sconce' | `robe-${'me' | 'other'}-${'front' | 'side' | 'back'}`;
+export type ImgKey = 'staff' | 'skull' | 'flame' | 'sconce';
 
 /** Carga asíncrona de los sprites SVG; el juego dibuja un respaldo mientras no estén listos. */
 export class Sprites {
@@ -123,7 +102,6 @@ export class Sprites {
       i.onload = () => { this.img[k] = i; if (white) this.white[k] = tintCopy(i, '#fff'); };
       i.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(s);
     };
-    for (const who of ['me', 'other'] as const) for (const v of ['front', 'side', 'back'] as const) add(`robe-${who}-${v}`, robeSvg(ROBES[who], v), true);
     add('staff', STAFF); add('skull', SKULL); add('flame', FLAME); add('sconce', SCONCE);
     for (const [k, c] of [['ember', '255,140,50'], ['violet', '170,120,255'], ['magenta', '255,90,216'], ['white', '255,240,255'], ['gold', '255,200,90']]) this.dot[k] = softDot(c);
   }

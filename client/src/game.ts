@@ -1,13 +1,15 @@
 import {
   TILE, PLAYER, INTERP_DELAY_MS, TICK_MS, WALL, THIN, COVER, SEAL_VAULT, SEAL_HEART, DIAG_TL, DIAG_TR, DIAG_BL, DIAG_BR, GATE_DIR, isDiag, isGate, ITEMS, createJitter, updateJitter, adaptiveDelay, viewScale, VISION_RADIUS, INTERACT_RANGE, generateValidMap, sampleBuffer, stepMove, replayMoves, pendingAfterAck, type MoveCmd, createRng, itemValue,
   FOCOS, DEFAULT_BUILD, abilityFor, inBasicRange, GCD_MS, SWAP_MS, DASH_S, DASH_MUL, type Build, type Slot,
+  animate, appearanceFor, BODIES, type Appearance, type AnimInput, type ActionKind, type View,
   type GridMap, type TimedPosition,
 } from '@shared/index';
 import type { Net } from './net';
 import { Input, type CastRequest } from './input';
-import { Sprites, isDeepWall, drawDiagWall, drawThinCracks, drawCover, drawBars, drawBrazier, buildFloorChunk, buildWall, wallKey, buildDecor, drawGrass, glowP, CHUNK, WALL_RISE, INK, type FloorChunk, type Decor, type ImgKey } from './art';
+import { Sprites, isDeepWall, drawDiagWall, drawThinCracks, drawCover, drawBars, drawBrazier, buildFloorChunk, buildWall, wallKey, buildDecor, drawGrass, glowP, CHUNK, WALL_RISE, INK, type FloorChunk, type Decor } from './art';
+import { drawCharacter } from './rig';
 
-interface Remote { id: string; name: string; buf: TimedPosition[]; hp: number; ax: number; ay: number; atk: boolean; seen: number; lx: number; ly: number; walk: number; flash: number; tg?: string | null; foco?: string; slow?: boolean; swingAt: number }
+interface Remote { id: string; name: string; buf: TimedPosition[]; hp: number; ax: number; ay: number; atk: boolean; seen: number; lx: number; ly: number; walk: number; flash: number; tg?: string | null; foco?: string; slow?: boolean; swingAt: number; shotAt: number; castAt: number; mv: number; drawT: number }
 interface Fx { kind: string; x: number; y: number; dx?: number; dy?: number; r?: number; x2?: number; y2?: number; t0: number; dur: number }
 type ChestKind = 'forja' | 'sarcofago' | 'ornamentado' | 'relicario';
 interface Light { x: number; y: number; r: number; c: string; fl?: number; a?: number }
@@ -21,6 +23,13 @@ const CHEST_ART: Record<ChestKind, { size: number; rgb: string }> = {
 };
 const CHEST_FILE = { closed: 'cerrado', open: 'abierto', empty: 'vacio' } as const;
 const CHUNK_PX = CHUNK * TILE;
+/** Color de la faja: el propio en ámbar y los demás en violeta (luego será el color del equipo). */
+const TEAM_ME = '#ffb347', TEAM_OTHER = '#9a6bff';
+/** Duración de cada animación de acción (ms). */
+const ACT_MS: Record<ActionKind, number> = { melee: 420, shoot: 360, cast: 600, hit: 340 };
+const DIE_MS = 900;
+/** Estado de animación de un personaje en este cuadro. */
+interface ActorDraw { x: number; y: number; ax: number; ay: number; id: string; me: boolean; walk: number; move: number; foco?: string; swingAt: number; shotAt: number; castAt: number; hitAt: number; dieAt?: number }
 const DIAGS = { TL: DIAG_TL, TR: DIAG_TR, BL: DIAG_BL, BR: DIAG_BR };
 /** Arte de escenario de Astra: tamaño en el mundo (lienzo cuadrado, base al 94 %). */
 const PORTAL_SIZE = 300, MONO_SIZE = 200;
@@ -52,7 +61,10 @@ export class Game {
   private dark = document.createElement('canvas');
   private embers: { x: number; y: number; vx: number; vy: number; l: number; c: string }[] = [];
   private sparks: { x: number; y: number; vx: number; vy: number; l: number }[] = [];
-  private shake = 0; private hurtAt = -1e9; private walk = 0;
+  private shake = 0; private hurtAt = -1e9; private walk = 0; private moveAmt = 0;
+  /** Animaciones del personaje propio: disparo, último lanzamiento y muerte. */
+  private shotAt = -1e9; private lastCastAt = -1e9; private deadAt = -1e9;
+  private looks = new Map<string, Appearance>();
   private input: Input;
   private me = { x: 0, y: 0, hp: 100, alive: true, extracted: false, ax: 0, ay: 1, atk: false };
   /** Posición predicha exacta (misma física y mismos comandos que el servidor). */
@@ -148,6 +160,8 @@ export class Game {
     this.offs.push(net.on('fx', (m) => {
       if (m.by === this.myId) return;
       this.addFx(m.kind, m.x, m.y, { dx: m.dx, dy: m.dy, r: m.r });
+      const r = m.by ? this.remotes.get(m.by) : undefined;
+      if (r && m.kind !== 'embestida') { if (m.kind === 'barrido') r.swingAt = performance.now(); else r.castAt = performance.now(); }
     }));
     this.offs.push(net.on('latency', (m) => { this.el.ping.textContent = `${Math.round(m.ms)} ms`; }));
     this.resize();
@@ -257,6 +271,7 @@ export class Game {
     if (this.snapTimes.length > 40) this.snapTimes.shift();
     this.reconcile(m.you);
     if (m.you.hp < this.me.hp && m.you.alive) { this.hurtAt = now; this.shake = Math.max(this.shake, 10); }
+    if (this.me.alive && !m.you.alive) this.deadAt = now;
     Object.assign(this.me, { hp: m.you.hp, alive: m.you.alive, extracted: m.you.extracted });
     this.portals = m.portals; this.collapseR = m.collapseR;
     // Mismos sellos que el servidor, según la fase (la física predicha debe coincidir).
@@ -268,7 +283,7 @@ export class Game {
     if (inv.join() !== this.inv.join()) this.renderInventory(inv);
     for (const o of m.others) {
       let r = this.remotes.get(o.id);
-      if (!r) { r = { id: o.id, name: o.name, buf: [], hp: o.hp, ax: o.ax, ay: o.ay, atk: o.atk, seen: now, lx: o.x, ly: o.y, walk: 0, flash: -1e9, swingAt: -1e9 }; this.remotes.set(o.id, r); }
+      if (!r) { r = { id: o.id, name: o.name, buf: [], hp: o.hp, ax: o.ax, ay: o.ay, atk: o.atk, seen: now, lx: o.x, ly: o.y, walk: 0, flash: -1e9, swingAt: -1e9, shotAt: -1e9, castAt: -1e9, mv: 0, drawT: now }; this.remotes.set(o.id, r); }
       r.buf.push({ x: o.x, y: o.y, t: now }); if (r.buf.length > 20) r.buf.shift();
       if (o.atk && !r.atk) this.remoteAttack(r, o);
       Object.assign(r, { hp: o.hp, ax: o.ax, ay: o.ay, atk: o.atk, seen: now, tg: o.tg, foco: o.foco, slow: o.slow });
@@ -316,7 +331,8 @@ export class Game {
     this.me.x = this.pred.x - this.err.x; this.me.y = this.pred.y - this.err.y;
     this.me.ax = this.input.aimX; this.me.ay = this.input.aimY;
     const moving = Math.hypot(this.input.mx, this.input.my) > 0.1;
-    this.walk = moving ? this.walk + dt * 13 : this.walk * 0.85;
+    this.moveAmt += ((moving && active ? 1 : 0) - this.moveAmt) * Math.min(1, dt * 10);
+    this.walk += dt * 9 * this.moveAmt;
     this.updateEffects(dt);
     this.me.atk = performance.now() - this.swingAt < 200;
     // El búfer se ajusta poco a poco para que el cambio no se note.
@@ -430,7 +446,8 @@ export class Game {
     const remotesNow: { r: Remote; x: number; y: number }[] = [];
     for (const r of this.remotes.values()) {
       const p = sampleBuffer(r.buf, now - this.interpDelay); if (!p) continue;
-      const moved = Math.hypot(p.x - r.lx, p.y - r.ly); r.walk = moved > 0.5 ? r.walk + 0.22 : r.walk * 0.85; r.lx = p.x; r.ly = p.y;
+      const moved = Math.hypot(p.x - r.lx, p.y - r.ly), fdt = Math.min(0.05, (now - r.drawT) / 1000); r.drawT = now;
+      r.mv += ((moved > 0.4 ? 1 : 0) - r.mv) * Math.min(1, fdt * 10); r.walk += fdt * 9 * r.mv; r.lx = p.x; r.ly = p.y;
       remotesNow.push({ r, x: p.x, y: p.y }); pushers.push(p);
     }
     const art = Game.art!;
@@ -442,10 +459,10 @@ export class Game {
     }
     for (const mo of map.monoliths) if (mo.x > v.x0 - 100 && mo.x < v.x1 + 100 && mo.y > v.y0 && mo.y < v.y1 + 200) list.push({ y: mo.y + 40, draw: () => { this.blob(mo.x, mo.y + 40, 48); this.drawScene('monolito_dormido', mo.x, mo.y + 40, MONO_SIZE); } });
     for (const p of this.portals) if (p.x > v.x0 - 160 && p.x < v.x1 + 160 && p.y > v.y0 && p.y < v.y1 + 320) list.push({ y: p.y - 6, draw: () => this.drawScene(`portal_${this.portalState(p)}`, p.x, p.y - 6, PORTAL_SIZE) });
-    for (const { r, x, y } of remotesNow) list.push({ y, draw: () => this.drawActor({ x, y, ax: r.ax, ay: r.ay, me: false, walk: r.walk, swing: now - r.swingAt < 260 ? (now - r.swingAt) / 260 : -1, flash: now - r.flash < 120 }) });
-    if (this.me.alive && !this.me.extracted) {
-      const me = this.me, k = (t - this.swingAt) / 260;
-      list.push({ y: me.y, draw: () => this.drawActor({ x: me.x, y: me.y, ax: me.ax, ay: me.ay, me: true, walk: this.walk, swing: k >= 0 && k <= 1 ? k : -1, flash: now - this.hurtAt < 120 }) });
+    for (const { r, x, y } of remotesNow) list.push({ y, draw: () => this.drawActor({ x, y, ax: r.ax, ay: r.ay, id: r.id, me: false, walk: r.walk, move: r.mv, foco: r.foco, swingAt: r.swingAt, shotAt: r.shotAt, castAt: r.castAt, hitAt: r.flash }, now) });
+    const me = this.me, dying = !me.alive && now - this.deadAt < DIE_MS + 600;
+    if ((me.alive || dying) && !me.extracted) {
+      list.push({ y: me.y, draw: () => this.drawActor({ x: me.x, y: me.y, ax: me.ax, ay: me.ay, id: this.myId, me: true, walk: this.walk, move: this.moveAmt, foco: this.build.focos[this.foco], swingAt: this.swingAt, shotAt: this.shotAt, castAt: this.lastCastAt, hitAt: this.hurtAt, dieAt: me.alive ? undefined : this.deadAt }, now) });
     }
     for (const c of this.chests) list.push({ y: c.y, draw: () => this.drawChest(c) });
     for (const r of this.remains) list.push({ y: r.y, draw: () => this.drawRemains(r.x, r.y) });
@@ -616,6 +633,7 @@ export class Game {
     } else if (tp) { x = tp.x; y = tp.y; }
     else { x = this.me.x + this.me.ax * range * 0.7; y = this.me.y + this.me.ay * range * 0.7; }
     this.cdById[ab.id] = now + ab.cd * 1000; this.castAt[ab.id] = now; this.gcdUntil = now + GCD_MS;
+    if (ab.id !== 'llamar_piedra' && ab.id !== 'barrido') this.lastCastAt = now; else if (ab.id === 'barrido') this.swingAt = now;
     this.pendingCast = { slot: c.slot, x: Math.round(x), y: Math.round(y), ...(this.target ? { target: this.target } : {}) };
     const d = Math.hypot(x - this.me.x, y - this.me.y) || 1, dx = (x - this.me.x) / d, dy = (y - this.me.y) / d;
     this.me.ax = dx; this.me.ay = dy;
@@ -633,6 +651,7 @@ export class Game {
   private remoteAttack(r: Remote, o: { x: number; y: number; tg?: string | null; foco?: string }) {
     const foco = FOCOS[o.foco ?? 'vara'];
     if (foco?.melee) { r.swingAt = performance.now(); return; }
+    r.shotAt = performance.now();
     const tgt = o.tg === this.myId ? this.me : o.tg ? this.remotePos(o.tg) : null;
     if (tgt) this.addFx('bolt', o.x, o.y - 26, { x2: tgt.x, y2: tgt.y - 26 });
   }
@@ -656,7 +675,7 @@ export class Game {
         const foco = FOCOS[this.build.focos[this.foco]];
         const tp = this.target ? this.remotePos(this.target) : null;
         if (foco.melee) this.swingAt = now;
-        else if (tp) this.addFx('bolt', this.me.x, this.me.y - 26, { x2: tp.x, y2: tp.y - 26 });
+        else { this.shotAt = now; if (tp) this.addFx('bolt', this.me.x, this.me.y - 26, { x2: tp.x, y2: tp.y - 26 }); }
       }
     }
     const seen = new Set<number>();
@@ -821,25 +840,31 @@ export class Game {
     g.globalAlpha = 1;
   }
 
-  /** Arcanista con túnica: mira hacia donde apunta, camina con rebote y gira el báculo al atacar. */
-  private drawActor(a: { x: number; y: number; ax: number; ay: number; me: boolean; walk: number; swing: number; flash: boolean }) {
-    const g = this.ctx, art = Game.art!;
-    const face = Math.abs(a.ax) > Math.abs(a.ay) ? 'side' : a.ay < 0 ? 'back' : 'front', flip = face === 'side' && a.ax < 0;
-    const key = `robe-${a.me ? 'me' : 'other'}-${face}` as ImgKey, img = art.img[key];
-    this.blob(a.x, a.y, 20);
-    if (!img) { g.fillStyle = a.me ? '#e3922f' : '#8a6ad0'; g.strokeStyle = INK; g.lineWidth = 4; g.beginPath(); g.arc(a.x, a.y - 22, 20, 0, 6.283); g.fill(); g.stroke(); return; }
-    const staff = () => {
-      const st = art.img.staff; if (!st) return;
-      const hx = a.x + (face === 'side' ? (flip ? -10 : 10) : 14), hy = a.y - 24;
-      let ang = Math.atan2(a.ay, a.ax) + Math.PI / 2; if (a.swing >= 0) ang += -1.6 + a.swing * 3.2;
-      g.save(); g.translate(hx, hy); g.rotate(ang); g.drawImage(st, -7, -52, 14, 60); g.restore();
-    };
-    if (face === 'back') staff();
-    const b = Math.sin(a.walk), sy = 1 + Math.abs(b) * 0.07 - 0.035, sx = 1 / sy;
-    g.save(); g.translate(a.x, a.y - Math.abs(b) * 3); g.scale(sx * (flip ? -1 : 1), sy);
-    g.drawImage(img, -24, -64, 48, 64);
-    const w = art.white[key]; if (a.flash && w) { g.globalAlpha = 0.85; g.drawImage(w, -24, -64, 48, 64); g.globalAlpha = 1; }
-    g.restore();
-    if (face !== 'back') staff();
+  /** Apariencia estable de cada jugador (cuerpo, ropa y cabeza). */
+  private look(id: string): Appearance {
+    let a = this.looks.get(id);
+    if (!a) { a = appearanceFor(id || 'yo'); this.looks.set(id, a); }
+    return a;
+  }
+
+  /** Arcanista animado por piezas: mira hacia donde apunta, camina, golpea, lanza, recibe daño y cae. */
+  private drawActor(a: ActorDraw, now: number) {
+    const view: View = Math.abs(a.ax) > Math.abs(a.ay) * 0.9 ? 'side' : a.ay < 0 ? 'back' : 'front';
+    const flip = view === 'side' && a.ax < 0, app = this.look(a.id);
+    // La acción más reciente que siga en curso gana.
+    let action: AnimInput['action'] = null, best = -Infinity;
+    for (const [kind, at] of [['melee', a.swingAt], ['shoot', a.shotAt], ['cast', a.castAt], ['hit', a.hitAt]] as [ActionKind, number][]) {
+      const k = (now - at) / ACT_MS[kind];
+      if (k >= 0 && k < 1 && at > best) { best = at; action = { kind, k }; }
+    }
+    const die = a.dieAt != null ? Math.min(1, (now - a.dieAt) / DIE_MS) : undefined;
+    const pose = animate(view, { t: now / 1000, walk: a.walk, move: a.move, action, die }, BODIES[app.body]);
+    const alpha = die != null ? Math.max(0, 1 - Math.max(0, (now - a.dieAt! - DIE_MS) / 600)) : 1;
+    if (die == null) this.blob(a.x, a.y, 20);
+    drawCharacter(this.ctx, {
+      x: a.x, y: a.y, view, flip, app, pose, t: now / 1000, alpha,
+      team: a.me ? TEAM_ME : TEAM_OTHER, foco: a.foco ?? null,
+      flash: now - a.hitAt < 120 ? 1 : 0,
+    });
   }
 }
