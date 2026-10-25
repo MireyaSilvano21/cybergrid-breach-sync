@@ -112,6 +112,7 @@ curl https://<tu-app>.onrender.com/api/test/telemetry
 | `MATCH_SCALE` | 1 | Escala de duración: 1 = 18 min, 0.2 ≈ 3.6 min |
 | `QUEUE_MIN_PLAYERS` / `QUEUE_MIN_TEAMS` / `QUEUE_WAIT_MS` | Emparejamiento: mínimo de jugadores (2), de equipos (2) y espera en ms (15000). |
 | `MIN_PLAYERS` | 1 | Jugadores listos necesarios para iniciar |
+| `DATABASE_URL` | (vacía) | Cadena de conexión de Postgres (Neon). Sin ella, los datos viven en memoria. |
 
 ## Despliegue en Render
 
@@ -119,4 +120,14 @@ curl https://<tu-app>.onrender.com/api/test/telemetry
 2. En Render: **New → Blueprint** y elige el repositorio; `render.yaml` configura todo.
 3. Verifica `https://<tu-app>.onrender.com/api/health`.
 
-> Nota: los usuarios, salas y telemetría viven en memoria. Al reiniciar el servicio se pierden; para la evaluación se repueblan con `/api/test/seed`.
+## Base de datos
+
+Usuarios, perfiles y partidas terminadas se guardan en Postgres (Neon, región US East · Ohio) cuando existe `DATABASE_URL`. El juego nunca espera a la base:
+
+- Al arrancar se cargan usuarios, perfiles y los totales de telemetría a memoria (una vez).
+- Durante el juego todo se lee de memoria; `/api/test/telemetry` responde desde los agregados en memoria.
+- Las escrituras (registro, perfil, fin de partida, siembra) van a una cola en segundo plano con reintentos. La siembra inserta todas sus partidas en una sola sentencia.
+- Al apagar el servicio (cada deploy) se vacía la cola antes de salir.
+- `GET /api/health` muestra el estado de la base: tipo, si cargó, escrituras pendientes y último error.
+
+Las tablas (`users`, `profiles`, `matches`) se crean solas la primera vez. Sin `DATABASE_URL` todo funciona igual pero en memoria (desarrollo, CI y E2E). Las salas, escuadras y partidas en curso siempre viven en memoria.

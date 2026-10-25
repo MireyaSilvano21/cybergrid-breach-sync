@@ -4,6 +4,14 @@ import { config } from './config';
 
 interface UserRecord { username: string; salt: string; hash: string }
 const users = new Map<string, UserRecord>();
+/** A dónde se manda cada usuario nuevo para guardarlo en la base (en segundo plano). */
+let userSink: ((u: UserRecord) => void) | null = null;
+export function setUserSink(fn: ((u: UserRecord) => void) | null) { userSink = fn; }
+
+/** Carga los usuarios guardados al arrancar, sin pisar los que se registraron mientras tanto. */
+export function loadUsers(rows: UserRecord[]) {
+  for (const u of rows) { const k = u.username.toLowerCase(); if (!users.has(k)) users.set(k, u); }
+}
 
 const b64 = (s: string) => Buffer.from(s).toString('base64url');
 const sign = (data: string) => createHmac('sha256', config.secret).update(data).digest('base64url');
@@ -12,7 +20,9 @@ export function registerUser(username: string, password: string): boolean {
   const k = username.toLowerCase();
   if (users.has(k)) return false;
   const salt = randomBytes(16).toString('hex');
-  users.set(k, { username, salt, hash: scryptSync(password, salt, 32).toString('hex') });
+  const u = { username, salt, hash: scryptSync(password, salt, 32).toString('hex') };
+  users.set(k, u);
+  userSink?.(u);
   return true;
 }
 

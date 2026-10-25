@@ -7,23 +7,38 @@ import fs from 'node:fs';
 import { WebSocketServer, WebSocket } from 'ws';
 import { ClientMessageSchema, CredentialsSchema, CreateRoomSchema, SeedPayloadSchema } from '@shared/index';
 import { config } from './config';
-import { checkCredentials, issueToken, registerUser, requireAuth, verifyToken, type AuthedRequest } from './auth';
+import { checkCredentials, issueToken, loadUsers, registerUser, requireAuth, setUserSink, verifyToken, type AuthedRequest } from './auth';
 import { RoomManager } from './rooms';
 import { Hub } from './hub';
 import { generateMatches, telemetry } from './telemetry';
+import { MemoryDb, createPgDb, type Db } from './db';
+import { Persistence } from './persist';
 import type { Conn } from './game';
 
-export function createGameServer(): { app: express.Express; server: Server; rooms: RoomManager; hub: Hub } {
+/** Persistencia que llena la caché de usuarios y la telemetría de este proceso. */
+export function createPersistence(db: Db = new MemoryDb()) {
+  return new Persistence(db, { loadUsers, restoreTelemetry: (t) => telemetry.restore(t) });
+}
+
+export function createGameServer(opts: { persistence?: Persistence } = {}): { app: express.Express; server: Server; rooms: RoomManager; hub: Hub; persistence: Persistence } {
+  // Sin persistencia indicada (pruebas), una base en memoria que carga al instante.
+  const persistence = opts.persistence ?? createPersistence();
+  if (!opts.persistence) void persistence.start();
+  setUserSink((u) => persistence.saveUser(u));
   const app = express();
   app.disable('x-powered-by');
   app.use(express.json({ limit: '2mb' }));
   // El campamento (escuadras y cola) y las salas se conocen: la cola arranca partidas en salas ocultas.
   let hub: Hub;
-  const rooms = new RoomManager((record) => telemetry.add(record), (id) => hub.profileOf(id));
-  hub = new Hub({ rules: config.queue, busy: (id) => rooms.busy(id), start: (entries, onEnd) => rooms.startQueued(entries, onEnd) });
+  // Al terminar una partida: telemetría en memoria al instante y escritura a la base en segundo plano.
+  const rooms = new RoomManager((record) => { telemetry.add(record); persistence.saveMatches([record]); }, (id) => hub.profileOf(id));
+  hub = new Hub({
+    rules: config.queue, busy: (id) => rooms.busy(id), start: (entries, onEnd) => rooms.startQueued(entries, onEnd),
+    profiles: { get: (name) => persistence.profile(name), save: (name, p) => persistence.saveProfile(name, p) },
+  });
   if (!process.env.VITEST) hub.startTicking();
 
-  app.get('/api/health', (_req, res) => res.json({ ok: true, uptimeS: Math.round(process.uptime()) }));
+  app.get('/api/health', (_req, res) => res.json({ ok: true, uptimeS: Math.round(process.uptime()), db: persistence.status() }));
 
   // --- Autenticación ---
   app.post('/api/auth/register', (req, res) => {
@@ -61,9 +76,11 @@ export function createGameServer(): { app: express.Express; server: Server; room
       const started = performance.now();
       const p = SeedPayloadSchema.safeParse(req.body);
       if (!p.success) return res.status(400).json({ error: 'Payload inválido: envía entre 100 y 1000 partidas.', issues: p.error.issues.slice(0, 5) });
-      if (p.data.reset) telemetry.reset();
+      if (p.data.reset) { telemetry.reset(); persistence.resetMatches(); }
       const matches = 'matches' in p.data ? p.data.matches : generateMatches(p.data.generate.count, p.data.generate.seed);
       telemetry.addMany(matches);
+      // La base se escribe en segundo plano: la respuesta y la telemetría no la esperan.
+      persistence.saveMatches(matches);
       const queryStart = performance.now();
       const summary = telemetry.summary();
       res.status(201).json({
@@ -130,10 +147,25 @@ export function createGameServer(): { app: express.Express; server: Server; room
     ws.on('close', () => { rooms.leave(conn.id); hub.disconnect(conn.id); });
   });
 
-  return { app, server, rooms, hub };
+  return { app, server, rooms, hub, persistence };
 }
 
 if (!process.env.VITEST) {
-  const { server } = createGameServer();
+  // Con DATABASE_URL (Neon) se guarda en Postgres; sin ella, en memoria como antes.
+  const url = process.env.DATABASE_URL;
+  const persistence = createPersistence(url ? await createPgDb(url) : new MemoryDb());
+  if (!url) console.log('[db] sin DATABASE_URL: los datos viven en memoria y se pierden al reiniciar');
+  const { server } = createGameServer({ persistence });
+  // Se espera la carga inicial un máximo de 8 s; si la base tarda más, sigue intentando en segundo plano.
+  await Promise.race([persistence.start(), new Promise((r) => setTimeout(r, 8000))]);
   server.listen(config.port, () => console.log(`CyberGrid escuchando en http://localhost:${config.port}`));
+  // Al apagar (por ejemplo, en cada deploy de Render) se vacía la cola de escrituras antes de salir.
+  let closing = false;
+  for (const sig of ['SIGTERM', 'SIGINT'] as const) process.on(sig, async () => {
+    if (closing) return; closing = true;
+    console.log(`[db] ${sig}: guardando lo pendiente…`);
+    server.close();
+    await persistence.shutdown();
+    process.exit(0);
+  });
 }
