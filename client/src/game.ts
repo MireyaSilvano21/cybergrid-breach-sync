@@ -44,6 +44,31 @@ function lightSprite(key: string, stops: [number, string][]): HTMLCanvasElement 
 }
 const HOLE = () => lightSprite('hole', [[0, 'rgba(0,0,0,1)'], [0.5, 'rgba(0,0,0,.8)'], [1, 'rgba(0,0,0,0)']]);
 const TINT = (c: string, a: number) => lightSprite(`${c}|${a}`, [[0, `rgba(${c},${a})`], [1, `rgba(${c},0)`]]);
+/**
+ * Escrituras al DOM solo si el valor cambió: cada cambio obliga al navegador a recalcular estilos
+ * (y a veces el acomodo), y hacerlo en cada cuadro le cuesta mucho a un celular.
+ */
+function setText(el: HTMLElement, v: string) { if (el.textContent !== v) el.textContent = v; }
+function setStyle(el: HTMLElement, prop: string, v: string) { if (el.style.getPropertyValue(prop) !== v) el.style.setProperty(prop, v); }
+function setData(el: HTMLElement, key: string, v: string) { if (el.dataset[key] !== v) el.dataset[key] = v; }
+
+/** Nombres sobre los personajes: se dibujan una vez en un lienzo pequeño y se reutilizan (el texto es caro). */
+const labelCache = new Map<string, HTMLCanvasElement>();
+function labelSprite(text: string, color: string): HTMLCanvasElement {
+  const key = text + '|' + color;
+  let c = labelCache.get(key);
+  if (!c) {
+    c = document.createElement('canvas');
+    const g0 = c.getContext('2d')!, font = '500 26px "Alegreya Sans", sans-serif';
+    g0.font = font; const w = Math.ceil(g0.measureText(text).width) + 8;
+    c.width = w; c.height = 34;
+    const g = c.getContext('2d')!; g.font = font; g.textAlign = 'center'; g.textBaseline = 'middle';
+    g.fillStyle = INK; g.fillText(text, w / 2 + 2, 19); g.fillStyle = color; g.fillText(text, w / 2, 17);
+    if (labelCache.size > 200) labelCache.clear();
+    labelCache.set(key, c);
+  }
+  return c;
+}
 /** Si el juego baja de este ritmo, se reduce la resolución de dibujo (y sube cuando se recupera). */
 const LOW_FPS = 45, HIGH_FPS = 57;
 /** Medición de tiempos por sección del dibujo (solo con ?perf en la dirección). */
@@ -89,7 +114,7 @@ export class Game {
   /** Resolución de la capa de oscuridad respecto al lienzo (1/2 en PC, 1/3 en táctil). */
   private darkK = 0.5;
   /** Calidad de dibujo (1 = completa); baja sola si el dispositivo no alcanza 45 FPS. */
-  private quality = 1; private qAcc = 0; private qN = 0; private qHigh = 0;
+  private quality = 1; private qAcc = 0; private qN = 0; private qHigh = 0; private workAcc = 0; private capWarned = false;
   private embers: { x: number; y: number; vx: number; vy: number; l: number; c: string }[] = [];
   private sparks: { x: number; y: number; vx: number; vy: number; l: number }[] = [];
   private shake = 0; private hurtAt = -1e9; private walk = 0; private moveAmt = 0;
@@ -161,7 +186,8 @@ export class Game {
 
   constructor(private root: HTMLElement, private net: Net, start: { seed: number; players: number; x: number; y: number; you?: string; team?: number }) {
     const canvas = root.querySelector('canvas')!;
-    this.ctx = canvas.getContext('2d')!;
+    // Lienzo opaco (el navegador no mezcla con lo de atrás) y de baja latencia donde se soporte.
+    this.ctx = (canvas.getContext('2d', { alpha: false, desynchronized: true }) ?? canvas.getContext('2d'))!;
     this.map = generateValidMap(start.seed, start.players);
     this.wallKeys = new Int16Array(this.map.width * this.map.height).fill(-1);
     // Solo se dibujan los muros que tocan algo recorrible; el resto es oscuridad (como en un plano de mazmorra).
@@ -345,36 +371,58 @@ export class Game {
     for (const [id, r] of this.remotes) if (now - r.seen > 500) this.remotes.delete(id);
     this.syncCombat(m, now);
     this.renderAllies(m.allies ?? []);
-    this.el.hpBar.style.width = `${m.you.hp}%`;
-    this.el.hpBar.closest<HTMLElement>('.vida')?.toggleAttribute('data-low', m.you.alive && m.you.hp <= 30);
-    this.el.hpText.textContent = String(Math.ceil(m.you.hp));
-    this.el.phase.textContent = PHASE_LABEL[m.phase] ?? m.phase;
-    const s = m.timeLeft; this.el.timer.textContent = `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
-    this.el.sync.hidden = !(m.you.sync > 0);
-    this.el.syncBar.style.width = `${Math.min(100, (m.you.sync / m.you.syncNeed) * 100)}%`;
+    setStyle(this.el.hpBar, 'width', `${Math.round(m.you.hp)}%`);
+    const low = m.you.alive && m.you.hp <= 30, vida = this.el.hpBar.closest<HTMLElement>('.vida');
+    if (vida && vida.hasAttribute('data-low') !== low) vida.toggleAttribute('data-low', low);
+    setText(this.el.hpText, String(Math.ceil(m.you.hp)));
+    setText(this.el.phase, PHASE_LABEL[m.phase] ?? m.phase);
+    const s = m.timeLeft; setText(this.el.timer, `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`);
+    const syncing = m.you.sync > 0;
+    if (this.el.sync.hidden === syncing) this.el.sync.hidden = !syncing;
+    if (syncing) setStyle(this.el.syncBar, 'width', `${Math.round(Math.min(100, (m.you.sync / m.you.syncNeed) * 100))}%`);
   }
 
   private loop = (t: number) => {
     const dt = Math.min(0.05, (t - this.last) / 1000);
     this.last = t;
+    const w0 = performance.now();
     this.update(dt, t);
     this.draw(t);
+    // Tiempo de trabajo del cuadro (sin contar la espera del navegador): distingue si el juego es lento
+    // o si el sistema limita los cuadros (modo de ahorro de energía).
+    this.workAcc += performance.now() - w0;
     this.fpsAcc += dt; this.fpsN++;
-    if (this.fpsAcc >= 0.5) { this.el.fps.textContent = `${Math.round(this.fpsN / this.fpsAcc)} fps`; this.fpsAcc = 0; this.fpsN = 0; }
+    if (this.fpsAcc >= 0.5) { if (!PERF) setText(this.el.fps, `${Math.round(this.fpsN / this.fpsAcc)} fps`); this.fpsAcc = 0; this.fpsN = 0; }
     this.adaptQuality(dt);
     this.raf = requestAnimationFrame(this.loop);
   };
 
   /**
-   * Resolución adaptable: cada 2 s mide el ritmo; si baja de 45 FPS, dibuja a menos resolución
-   * (hasta 60 %); si se mantiene arriba de 57 FPS por 6 s, la vuelve a subir.
+   * Resolución adaptable, cada 2 s:
+   * - Si va lento y el juego tarda mucho por cuadro, baja la resolución (hasta 60 %).
+   * - Si va a ~30 FPS justos pero el juego trabaja poco, es el sistema limitando (ahorro de energía):
+   *   no se baja la calidad (no ayudaría) y se avisa una vez al jugador.
+   * - Si se mantiene rápido 6 s, la resolución vuelve a subir.
    */
   private adaptQuality(dt: number) {
     this.qAcc += dt; this.qN++;
     if (this.qAcc < 2) return;
-    const fps = this.qN / this.qAcc; this.qAcc = 0; this.qN = 0;
+    const fps = this.qN / this.qAcc, work = this.workAcc / this.qN;
+    this.qAcc = 0; this.qN = 0; this.workAcc = 0;
+    if (PERF) {
+      // Diagnóstico en pantalla (?perf): ritmo, trabajo por cuadro, calidad, densidad y la parte más cara.
+      const rows = ((window as any).__cgPerf ?? []).slice(-60) as number[][], names = ['piso', 'objetos', 'luz', 'brillos', 'interfaz', 'final'];
+      const avg = names.map((_, i) => rows.reduce((t, r) => t + (r[i] ?? 0), 0) / (rows.length || 1));
+      const top = avg.indexOf(Math.max(...avg));
+      setText(this.el.fps, `${Math.round(fps)} fps · ${work.toFixed(1)} ms · ${Math.round(this.quality * 100)}% · ${this.dpr.toFixed(2)}x · ${names[top]} ${avg[top].toFixed(1)} ms`);
+    }
     if (document.hidden) return;
-    if (fps < LOW_FPS && this.quality > 0.6) { this.quality = Math.max(0.6, this.quality - 0.15); this.qHigh = 0; this.resize(); }
+    const budget = 1000 / 60;
+    if (fps < LOW_FPS && work > budget * 0.6 && this.quality > 0.6) { this.quality = Math.max(0.6, this.quality - 0.15); this.qHigh = 0; this.resize(); }
+    else if (fps < LOW_FPS && fps > 26 && fps < 34 && work < budget * 0.45 && !this.capWarned) {
+      this.capWarned = true;
+      this.toast('Tu dispositivo limita el juego a 30 FPS (ahorro de energía). Desactívalo para jugar a 60.');
+    }
     else if (fps > HIGH_FPS && this.quality < 1) { if (++this.qHigh >= 3) { this.quality = Math.min(1, this.quality + 0.15); this.qHigh = 0; this.resize(); } }
     else this.qHigh = 0;
   }
@@ -423,18 +471,17 @@ export class Game {
     this.cam.x += (this.me.x - this.cam.x) * Math.min(1, dt * 6);
     this.cam.y += (this.me.y - 20 - this.cam.y) * Math.min(1, dt * 6);
     const st = this.el.state;
-    st.dataset.x = String(Math.round(this.me.x)); st.dataset.y = String(Math.round(this.me.y)); st.dataset.hp = String(this.me.hp);
+    setData(st, 'x', String(Math.round(this.me.x))); setData(st, 'y', String(Math.round(this.me.y))); setData(st, 'hp', String(this.me.hp));
     // Cofre disponible más cercano: lo usan las pruebas E2E para guiar al jugador.
     let nc: { x: number; y: number; s: string } | null = null, nd = Infinity;
     for (const c of this.chests) { if (c.s === 'empty') continue; const d = Math.hypot(c.x - this.me.x, c.y - this.me.y); if (d < nd) { nd = d; nc = c; } }
-    st.dataset.chestX = nc ? String(Math.round(nc.x)) : ''; st.dataset.chestY = nc ? String(Math.round(nc.y)) : '';
-    st.dataset.chestState = nc?.s ?? '';
-    st.dataset.interp = String(Math.round(this.interpDelay));
+    setData(st, 'chestX', nc ? String(Math.round(nc.x)) : ''); setData(st, 'chestY', nc ? String(Math.round(nc.y)) : '');
+    setData(st, 'chestState', nc?.s ?? '');
+    setData(st, 'interp', String(Math.round(this.interpDelay)));
     // Rival más cercano en pantalla y cargas: los usan las pruebas E2E para apuntar.
     const ne = this.nearestEnemy(Infinity), ns = ne ? this.screenOf(ne.x, ne.y - 20) : null;
-    st.dataset.enemySx = ns ? String(Math.round(ns.x)) : ''; st.dataset.enemySy = ns ? String(Math.round(ns.y)) : '';
-    st.dataset.ammo = this.ammo.toFixed(2);
-    this.el.ping.title = `Búfer de suavizado: ${Math.round(this.interpDelay)} ms`;
+    setData(st, 'enemySx', ns ? String(Math.round(ns.x)) : ''); setData(st, 'enemySy', ns ? String(Math.round(ns.y)) : '');
+    setData(st, 'ammo', this.ammo.toFixed(2));
   }
 
   /** Trozo de piso con caché LRU: solo se pintan los que se acercan a la cámara. */
@@ -482,7 +529,8 @@ export class Game {
 
   private worldTransform(g: CanvasRenderingContext2D, k = 1) {
     const s = this.scale * this.dpr * k, sx = (Math.random() - 0.5) * this.shake, sy = (Math.random() - 0.5) * this.shake;
-    g.setTransform(s, 0, 0, s, (this.W / 2 - this.cam.x * this.scale + sx) * this.dpr * k, (this.H / 2 - this.cam.y * this.scale + sy) * this.dpr * k);
+    // Desplazamiento en píxeles enteros: el piso y los muros se copian sin suavizado sub-píxel.
+    g.setTransform(s, 0, 0, s, Math.round((this.W / 2 - this.cam.x * this.scale + sx) * this.dpr * k), Math.round((this.H / 2 - this.cam.y * this.scale + sy) * this.dpr * k));
   }
 
   private draw(t: number) {
@@ -610,8 +658,8 @@ export class Game {
       const ally = !this.isEnemy(r), tc = teamColor(r.team, '#e2c8ff');
       g.fillStyle = 'rgba(20,10,22,.8)'; g.fillRect(x - 23, y - 79, 46, 8);
       g.fillStyle = ally ? tc : '#ff6b6b'; g.fillRect(x - 22, y - 78, 44 * (r.hp / 100), 6);
-      g.font = '500 13px "Alegreya Sans", sans-serif'; g.textAlign = 'center';
-      g.fillStyle = INK; g.fillText(r.name, x + 1, y - 84); g.fillStyle = ally ? tc : '#e2c8ff'; g.fillText(r.name, x, y - 85);
+      const lab = labelSprite(r.name, ally ? tc : '#e2c8ff');
+      g.drawImage(lab, x - lab.width / 4, y - 85 - 9, lab.width / 2, lab.height / 2);
     }
     // Rivales revelados (Escuchar al Viento): marca roja que se ve aunque estén en la oscuridad.
     for (const { r, x, y } of remotesNow) {
@@ -990,18 +1038,18 @@ export class Game {
       let name: string, left: number, total: number, id: string;
       if (slot === 'S') { const f = FOCOS[this.build.focos[this.foco]]; name = f.name; id = f.id; left = this.swapUntil - now; total = SWAP_MS; }
       else { const ab = abilityFor(this.build, this.foco, slot); name = ab.name; id = ab.id; left = Math.max((this.cdById[ab.id] ?? 0) - now, this.gcdUntil - now); total = Math.max(ab.cd * 1000, GCD_MS); }
-      const nm = el.querySelector<HTMLElement>('.ab-name'); if (nm && nm.textContent !== name) nm.textContent = name;
+      const nm = el.querySelector<HTMLElement>('.ab-name'); if (nm) setText(nm, name);
       if (el.title !== name) el.title = name;
       // El ícono de tiza sale de la hoja de estilos según la habilidad o el Foco.
       if (el.dataset.ability !== id) el.dataset.ability = id;
       const cd = el.querySelector<HTMLElement>('.ab-cd');
       if (cd) {
         const p = left > 0 ? Math.min(1, left / total) : 0;
-        cd.style.setProperty('--p', p.toFixed(3));
-        const txt = left > 400 ? String(Math.ceil(left / 1000)) : '';
-        if (cd.textContent !== txt) cd.textContent = txt;
+        // Solo cambia cuando avanza al menos un 1 %: así no se repinta el botón en cada cuadro.
+        setStyle(cd, '--p', (Math.round(p * 100) / 100).toString());
+        setText(cd, left > 400 ? String(Math.ceil(left / 1000)) : '');
       }
-      el.dataset.ready = String(left <= 0);
+      setData(el, 'ready', String(left <= 0));
     }
   }
 
