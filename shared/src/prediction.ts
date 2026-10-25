@@ -11,26 +11,41 @@ import type { Vec2 } from './interpolation';
  * servidor aún no procesa. Si nadie hizo trampa ni hubo choque distinto, el resultado
  * es idéntico a lo que ya se veía y no hay corrección: adiós a los tirones.
  */
-export interface MoveCmd { seq: number; mx: number; my: number; dt: number }
+/** sp: multiplicador de velocidad que el cliente usó (1 normal, mayor en una embestida, menor si está ralentizado). */
+export interface MoveCmd { seq: number; mx: number; my: number; dt: number; sp?: number }
 
 /** Un paso de movimiento: normaliza la dirección y aplica la colisión con muros. */
-export function stepMove(map: GridMap, pos: Vec2, mx: number, my: number, dt: number): Vec2 {
+export function stepMove(map: GridMap, pos: Vec2, mx: number, my: number, dt: number, sp = 1): Vec2 {
   const l = Math.hypot(mx, my);
   if (l > 1) { mx /= l; my /= l; }
   if (dt <= 0 || (mx === 0 && my === 0)) return { x: pos.x, y: pos.y };
-  return moveCircle(map, pos, mx * PLAYER.speed * dt, my * PLAYER.speed * dt, PLAYER.radius);
+  // Pasos de máximo 12 px: una embestida rápida no atraviesa muros delgados.
+  const dist = PLAYER.speed * sp * dt, n = Math.max(1, Math.ceil(dist / 12));
+  let p = { x: pos.x, y: pos.y };
+  for (let i = 0; i < n; i++) p = moveCircle(map, p, (mx * dist) / n, (my * dist) / n, PLAYER.radius);
+  return p;
 }
 
 /** Aplica en orden los comandos pendientes (lo que hace el cliente al reconciliar). */
 export function replayMoves(map: GridMap, pos: Vec2, cmds: MoveCmd[]): Vec2 {
   let p = { x: pos.x, y: pos.y };
-  for (const c of cmds) p = stepMove(map, p, c.mx, c.my, c.dt);
+  for (const c of cmds) p = stepMove(map, p, c.mx, c.my, c.dt, c.sp ?? 1);
   return p;
 }
 
 /** Estado de movimiento de un jugador en el servidor. */
-export interface MoveQueue { queue: MoveCmd[]; credit: number; ack: number; ackRem: number }
-export const createMoveQueue = (): MoveQueue => ({ queue: [], credit: 0, ack: 0, ackRem: 0 });
+/**
+ * slow: velocidad máxima permitida (1 normal, menos si está ralentizado).
+ * dashTime: segundos de embestida que el servidor autorizó (permite ir más rápido solo ese tiempo).
+ */
+export interface MoveQueue { queue: MoveCmd[]; credit: number; ack: number; ackRem: number; slow: number; dashTime: number; dashMul: number }
+export const createMoveQueue = (): MoveQueue => ({ queue: [], credit: 0, ack: 0, ackRem: 0, slow: 1, dashTime: 0, dashMul: 1 });
+
+/** Multiplicador real que aplica el servidor a un comando (nunca más rápido de lo autorizado). */
+export function allowedSpeed(q: MoveQueue, claimed = 1): number {
+  if (claimed > 1) return q.dashTime > 0 ? Math.min(claimed, q.dashMul) : q.slow;
+  return Math.min(claimed, q.slow);
+}
 
 /** Tiempo máximo de movimiento que se puede "deber" (ráfaga tras un corte de red). */
 export const MAX_CREDIT_S = 0.3;
@@ -64,8 +79,9 @@ export function consumeMoves(map: GridMap, pos: Vec2, q: MoveQueue, tickS = TICK
   let p = { x: pos.x, y: pos.y };
   while (q.queue.length && budget > 1e-6) {
     const c = q.queue[0];
-    const use = Math.min(c.dt, budget);
-    p = stepMove(map, p, c.mx, c.my, use);
+    const use = Math.min(c.dt, budget), sp = allowedSpeed(q, c.sp ?? 1);
+    p = stepMove(map, p, c.mx, c.my, use, sp);
+    if ((c.sp ?? 1) > 1 && q.dashTime > 0) q.dashTime = Math.max(0, q.dashTime - use);
     c.dt -= use; budget -= use; q.credit -= use;
     // Si quedó a medias, el ack apunta a este comando con lo que le falta por aplicar.
     if (c.dt <= 1e-6) { q.queue.shift(); q.ack = c.seq; q.ackRem = 0; } else { q.ack = c.seq; q.ackRem = c.dt; }

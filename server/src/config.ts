@@ -10,5 +10,7 @@ export const config = {
   matchScale: Number(process.env.MATCH_SCALE ?? 1),
   /** Jugadores listos necesarios para iniciar (1 permite probar solo). */
   minPlayers: Number(process.env.MIN_PLAYERS ?? 1),
+  /** Solo pruebas E2E: todos aparecen en la misma llegada para poder probar el combate. */
+  sameSpawn: process.env.SAME_SPAWN === '1',
   tokenTtlMs: 1000 * 60 * 60 * 12,
 };

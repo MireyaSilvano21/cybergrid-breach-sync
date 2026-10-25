@@ -1,12 +1,14 @@
 import {
   TILE, PLAYER, INTERP_DELAY_MS, TICK_MS, WALL, THIN, COVER, SEAL_VAULT, SEAL_HEART, DIAG_TL, DIAG_TR, DIAG_BL, DIAG_BR, GATE_DIR, isDiag, isGate, ITEMS, createJitter, updateJitter, adaptiveDelay, viewScale, VISION_RADIUS, INTERACT_RANGE, generateValidMap, sampleBuffer, stepMove, replayMoves, pendingAfterAck, type MoveCmd, createRng, itemValue,
+  FOCOS, DEFAULT_BUILD, abilityFor, inBasicRange, GCD_MS, SWAP_MS, DASH_S, DASH_MUL, type Build, type Slot,
   type GridMap, type TimedPosition,
 } from '@shared/index';
 import type { Net } from './net';
-import { Input } from './input';
+import { Input, type CastRequest } from './input';
 import { Sprites, isDeepWall, drawDiagWall, drawThinCracks, drawCover, drawBars, drawBrazier, buildFloorChunk, buildWall, wallKey, buildDecor, drawGrass, glowP, CHUNK, WALL_RISE, INK, type FloorChunk, type Decor, type ImgKey } from './art';
 
-interface Remote { id: string; name: string; buf: TimedPosition[]; hp: number; ax: number; ay: number; atk: boolean; seen: number; lx: number; ly: number; walk: number; flash: number }
+interface Remote { id: string; name: string; buf: TimedPosition[]; hp: number; ax: number; ay: number; atk: boolean; seen: number; lx: number; ly: number; walk: number; flash: number; tg?: string | null; foco?: string; slow?: boolean; swingAt: number }
+interface Fx { kind: string; x: number; y: number; dx?: number; dy?: number; r?: number; x2?: number; y2?: number; t0: number; dur: number }
 type ChestKind = 'forja' | 'sarcofago' | 'ornamentado' | 'relicario';
 interface Light { x: number; y: number; r: number; c: string; fl?: number; a?: number }
 
@@ -59,7 +61,7 @@ export class Game {
   private err = { x: 0, y: 0 };
   /** Comandos enviados que el servidor todavía no confirma, y el que se está juntando. */
   private pending: MoveCmd[] = [];
-  private out: { mx: number; my: number; dt: number } | null = null;
+  private out: { mx: number; my: number; dt: number; sp: number } | null = null;
   private remotes = new Map<string, Remote>();
   // --- Netcode del cliente ---
   /** Variación de llegada de los paquetes y retraso de interpolación adaptable. */
@@ -71,6 +73,26 @@ export class Game {
   /** Ataque predicho: la animación sale al instante, sin esperar al servidor. */
   private swingAt = -1e9;
   private cooldownUntil = 0;
+  // --- Combate estilo Albion ---
+  private myId = '';
+  private build: Build = DEFAULT_BUILD;
+  private foco: 0 | 1 = 0;
+  private target: string | null = null;
+  private targetSent: string | null = null;
+  private targetSetAt = 0;
+  /** Recargas predichas (hora local en ms) por habilidad, recarga global y cambio de Foco. */
+  private cdById: Record<string, number> = {};
+  private castAt: Record<string, number> = {};
+  private gcdUntil = 0; private swapUntil = 0; private swapAt = -1e9;
+  private slowMul = 1;
+  /** Embestida predicha: segundos que quedan y dirección. */
+  private dashLeft = 0; private dashDir = { x: 0, y: 0 };
+  private pendingCast: { slot: Slot; x: number; y: number; target?: string } | null = null;
+  private pendingSwap = false;
+  private lastAttackAt = 0;
+  private projectiles = new Map<number, { x: number; y: number; vx: number; vy: number; t: number }>();
+  private fxs: Fx[] = [];
+  private abEls: HTMLElement[] = [];
   private floaters: { x: number; y: number; text: string; t0: number; id?: string }[] = [];
   private portals: { x: number; y: number; open: boolean }[] = [];
   private chests: { id: string; k?: ChestKind; x: number; y: number; s: 'closed' | 'open' | 'empty' }[] = [];
@@ -88,7 +110,7 @@ export class Game {
   private offs: (() => void)[] = [];
   private el: Record<string, HTMLElement>;
 
-  constructor(private root: HTMLElement, private net: Net, start: { seed: number; players: number; x: number; y: number }) {
+  constructor(private root: HTMLElement, private net: Net, start: { seed: number; players: number; x: number; y: number; you?: string }) {
     const canvas = root.querySelector('canvas')!;
     this.ctx = canvas.getContext('2d')!;
     this.map = generateValidMap(start.seed, start.players);
@@ -120,6 +142,13 @@ export class Game {
       this.shake = Math.max(this.shake, 6);
     }));
     this.offs.push(net.on('snap', (m) => this.onSnap(m)));
+    this.myId = start.you ?? '';
+    this.abEls = [...root.querySelectorAll<HTMLElement>('[data-slot]')];
+    // Efectos de habilidades de otros jugadores (las propias ya se dibujaron al lanzarlas).
+    this.offs.push(net.on('fx', (m) => {
+      if (m.by === this.myId) return;
+      this.addFx(m.kind, m.x, m.y, { dx: m.dx, dy: m.dy, r: m.r });
+    }));
     this.offs.push(net.on('latency', (m) => { this.el.ping.textContent = `${Math.round(m.ms)} ms`; }));
     this.resize();
     addEventListener('resize', this.resize);
@@ -174,14 +203,23 @@ export class Game {
     this.scale = viewScale(this.W, this.H);
   };
 
-  private sendInput(t: number, attack: boolean, use: boolean, viewT: number | undefined) {
-    const c = this.out ?? { mx: 0, my: 0, dt: 0 };
+  private sendInput(t: number, use: boolean) {
+    const c = this.out ?? { mx: 0, my: 0, dt: 0, sp: 1 };
     this.out = null;
     const seq = ++this.seq, dt = Math.min(0.25, c.dt);
-    if (dt > 0 && (c.mx !== 0 || c.my !== 0)) this.pending.push({ seq, mx: c.mx, my: c.my, dt });
+    if (dt > 0 && (c.mx !== 0 || c.my !== 0)) this.pending.push({ seq, mx: c.mx, my: c.my, dt, sp: c.sp });
     if (this.pending.length > 120) this.pending.shift();
     this.lastSend = t;
-    this.net.send({ type: 'input', seq, mx: c.mx, my: c.my, dt, ax: this.input.aimX, ay: this.input.aimY, attack, interact: this.input.interact, use, viewT });
+    const msg: Record<string, unknown> = {
+      type: 'input', seq, mx: c.mx, my: c.my, dt, sp: c.sp, ax: this.input.aimX, ay: this.input.aimY, attack: false,
+      interact: this.input.interact, use, swap: this.pendingSwap,
+      // Hora del servidor que se está dibujando: el básico automático se revisa contra lo que veías.
+      viewT: this.serverTimeAt(performance.now() - this.interpDelay),
+    };
+    if (this.target !== this.targetSent) { msg.target = this.target; this.targetSent = this.target; }
+    if (this.pendingCast) msg.cast = this.pendingCast;
+    this.pendingCast = null; this.pendingSwap = false;
+    this.net.send(msg);
   }
 
   /**
@@ -194,7 +232,7 @@ export class Game {
     const extra = this.out && this.out.dt > 0 ? [{ seq: this.seq + 1, ...this.out }] : [];
     const p = replayMoves(this.map, { x: you.x, y: you.y }, [...this.pending, ...extra]);
     const cx = p.x - this.pred.x, cy = p.y - this.pred.y;
-    if (Math.hypot(cx, cy) > 120 || !you.alive) { this.err = { x: 0, y: 0 }; }
+    if (Math.hypot(cx, cy) > 200 || !you.alive) { this.err = { x: 0, y: 0 }; }
     else if (Math.abs(cx) + Math.abs(cy) > 0.01) { this.err.x += cx; this.err.y += cy; }
     this.pred = p;
   }
@@ -230,11 +268,13 @@ export class Game {
     if (inv.join() !== this.inv.join()) this.renderInventory(inv);
     for (const o of m.others) {
       let r = this.remotes.get(o.id);
-      if (!r) { r = { id: o.id, name: o.name, buf: [], hp: o.hp, ax: o.ax, ay: o.ay, atk: o.atk, seen: now, lx: o.x, ly: o.y, walk: 0, flash: -1e9 }; this.remotes.set(o.id, r); }
+      if (!r) { r = { id: o.id, name: o.name, buf: [], hp: o.hp, ax: o.ax, ay: o.ay, atk: o.atk, seen: now, lx: o.x, ly: o.y, walk: 0, flash: -1e9, swingAt: -1e9 }; this.remotes.set(o.id, r); }
       r.buf.push({ x: o.x, y: o.y, t: now }); if (r.buf.length > 20) r.buf.shift();
-      Object.assign(r, { hp: o.hp, ax: o.ax, ay: o.ay, atk: o.atk, seen: now });
+      if (o.atk && !r.atk) this.remoteAttack(r, o);
+      Object.assign(r, { hp: o.hp, ax: o.ax, ay: o.ay, atk: o.atk, seen: now, tg: o.tg, foco: o.foco, slow: o.slow });
     }
     for (const [id, r] of this.remotes) if (now - r.seen > 500) this.remotes.delete(id);
+    this.syncCombat(m, now);
     this.el.hpBar.style.width = `${m.you.hp}%`;
     this.el.hpText.textContent = String(Math.ceil(m.you.hp));
     this.el.phase.textContent = PHASE_LABEL[m.phase] ?? m.phase;
@@ -258,22 +298,18 @@ export class Game {
   }
 
   private update(dt: number, t: number) {
-    // Auto-apuntado táctil: el enemigo visible más cercano dentro del alcance.
-    let auto: { x: number; y: number } | null = null;
-    if (this.input.touch) {
-      let best = PLAYER.attackRange * 2;
-      for (const r of this.remotes.values()) {
-        const p = r.buf[r.buf.length - 1]; if (!p) continue;
-        const d = Math.hypot(p.x - this.me.x, p.y - this.me.y);
-        if (d < best) { best = d; auto = { x: (p.x - this.me.x) / d, y: (p.y - this.me.y) / d }; }
-      }
-    }
+    // En táctil se apunta hacia el objetivo fijado (si hay).
+    const tp = this.target ? this.remotePos(this.target) : null;
+    const auto = this.input.touch && tp ? (() => { const d = Math.hypot(tp.x - this.me.x, tp.y - this.me.y) || 1; return { x: (tp.x - this.me.x) / d, y: (tp.y - this.me.y) / d }; })() : null;
     this.input.update(this.screenOf(this.me.x, this.me.y), auto);
+    const active = this.me.alive && !this.me.extracted;
+    this.handleCombatInput(active);
     // Dirección cuantizada a centésimas: cliente y servidor calculan exactamente lo mismo.
     const q = (v: number) => Math.round(v * 100) / 100;
-    const active = this.me.alive && !this.me.extracted;
-    const mx = active ? q(this.input.mx) : 0, my = active ? q(this.input.my) : 0;
-    if (active) this.pred = stepMove(this.map, this.pred, mx, my, dt);
+    let mx = active ? q(this.input.mx) : 0, my = active ? q(this.input.my) : 0, sp = this.slowMul, mdt = dt;
+    // Embestida predicha: el mismo tiempo exacto que autoriza el servidor, a su velocidad.
+    if (this.dashLeft > 0 && active) { mx = q(this.dashDir.x); my = q(this.dashDir.y); sp = DASH_MUL; mdt = Math.min(dt, this.dashLeft); this.dashLeft -= mdt; }
+    if (active) this.pred = stepMove(this.map, this.pred, mx, my, mdt, sp);
     // La corrección del servidor se reparte en unos cuadros en lugar de aplicarse de golpe.
     const ek = Math.min(1, dt * 10);
     this.err.x -= this.err.x * ek; this.err.y -= this.err.y * ek;
@@ -282,22 +318,19 @@ export class Game {
     const moving = Math.hypot(this.input.mx, this.input.my) > 0.1;
     this.walk = moving ? this.walk + dt * 13 : this.walk * 0.85;
     this.updateEffects(dt);
-    // Ataque predicho: se respeta el mismo enfriamiento que el servidor para no mostrar golpes que él rechazaría.
-    let attack = this.input.consumeAttack();
-    if (attack && (t < this.cooldownUntil || !this.me.alive || this.me.extracted)) attack = false;
-    if (attack) { this.swingAt = t; this.cooldownUntil = t + PLAYER.attackCooldownMs; }
-    this.me.atk = t - this.swingAt < 200;
+    this.me.atk = performance.now() - this.swingAt < 200;
     // El búfer se ajusta poco a poco para que el cambio no se note.
     // Sube rápido si la red empeora y baja despacio: así los demás no cambian de ritmo a cada rato.
     this.interpDelay += (this.targetDelay - this.interpDelay) * Math.min(1, dt * (this.targetDelay > this.interpDelay ? 2 : 0.4));
-    const viewT = attack ? this.serverTimeAt(performance.now() - this.interpDelay) : undefined;
     const use = this.input.consumeUse();
-    // Cada tramo con la misma dirección se junta en un comando; al cambiar, se envía el anterior.
-    if (this.out && (this.out.mx !== mx || this.out.my !== my)) this.sendInput(t, false, false, undefined);
-    if (!this.out) this.out = { mx, my, dt: 0 };
-    if (active) this.out.dt += dt;
+    // Cada tramo con la misma dirección y velocidad se junta en un comando; al cambiar, se envía el anterior.
+    if (this.out && (this.out.mx !== mx || this.out.my !== my || this.out.sp !== sp)) this.sendInput(t, false);
+    if (!this.out) this.out = { mx, my, dt: 0, sp };
+    if (active) this.out.dt += mdt;
     const idle = mx === 0 && my === 0;
-    if (attack || use || t - this.lastSend >= (idle ? 50 : 15) || this.out.dt >= 0.1) this.sendInput(t, attack, use, viewT);
+    const urgent = use || this.pendingCast || this.pendingSwap || this.target !== this.targetSent;
+    if (urgent || t - this.lastSend >= (idle ? 50 : 15) || this.out.dt >= 0.1) this.sendInput(t, use);
+    this.updateAbilityHud();
     this.cam.x += (this.me.x - this.cam.x) * Math.min(1, dt * 6);
     this.cam.y += (this.me.y - 20 - this.cam.y) * Math.min(1, dt * 6);
     const st = this.el.state;
@@ -409,7 +442,7 @@ export class Game {
     }
     for (const mo of map.monoliths) if (mo.x > v.x0 - 100 && mo.x < v.x1 + 100 && mo.y > v.y0 && mo.y < v.y1 + 200) list.push({ y: mo.y + 40, draw: () => { this.blob(mo.x, mo.y + 40, 48); this.drawScene('monolito_dormido', mo.x, mo.y + 40, MONO_SIZE); } });
     for (const p of this.portals) if (p.x > v.x0 - 160 && p.x < v.x1 + 160 && p.y > v.y0 && p.y < v.y1 + 320) list.push({ y: p.y - 6, draw: () => this.drawScene(`portal_${this.portalState(p)}`, p.x, p.y - 6, PORTAL_SIZE) });
-    for (const { r, x, y } of remotesNow) list.push({ y, draw: () => this.drawActor({ x, y, ax: r.ax, ay: r.ay, me: false, walk: r.walk, swing: r.atk ? 0.5 : -1, flash: now - r.flash < 120 }) });
+    for (const { r, x, y } of remotesNow) list.push({ y, draw: () => this.drawActor({ x, y, ax: r.ax, ay: r.ay, me: false, walk: r.walk, swing: now - r.swingAt < 260 ? (now - r.swingAt) / 260 : -1, flash: now - r.flash < 120 }) });
     if (this.me.alive && !this.me.extracted) {
       const me = this.me, k = (t - this.swingAt) / 260;
       list.push({ y: me.y, draw: () => this.drawActor({ x: me.x, y: me.y, ax: me.ax, ay: me.ay, me: true, walk: this.walk, swing: k >= 0 && k <= 1 ? k : -1, flash: now - this.hurtAt < 120 }) });
@@ -418,6 +451,7 @@ export class Game {
     for (const r of this.remains) list.push({ y: r.y, draw: () => this.drawRemains(r.x, r.y) });
     list.sort((a, b) => a.y - b.y);
     g.lineCap = 'round'; g.lineJoin = 'round';
+    this.drawGroundMarks(remotesNow, sec);
     for (const o of list) o.draw();
     this.drawSwing(t);
 
@@ -471,14 +505,16 @@ export class Game {
     g.globalAlpha = 1;
     for (const p of this.embers) { g.fillStyle = `rgba(${p.c},${p.l})`; g.beginPath(); g.arc(p.x, p.y, 2.2 * p.l + 0.6, 0, 6.283); g.fill(); }
     for (const p of this.sparks) { g.strokeStyle = `rgba(255,${(190 + p.l * 60) | 0},120,${p.l})`; g.lineWidth = 3 * p.l + 1; g.beginPath(); g.moveTo(p.x, p.y); g.lineTo(p.x - p.vx * 0.03, p.y - p.vy * 0.03); g.stroke(); }
+    this.drawCombatFx(now, art);
     g.globalCompositeOperation = 'source-over';
+    this.drawAimGuide();
 
     // 5. Interfaz dentro del mundo: nombres, daño, indicaciones y el colapso final.
     for (const { r, x, y } of remotesNow) {
       g.fillStyle = 'rgba(20,10,22,.8)'; g.fillRect(x - 23, y - 79, 46, 8);
       g.fillStyle = '#ff6b6b'; g.fillRect(x - 22, y - 78, 44 * (r.hp / 100), 6);
       g.font = '500 13px "Alegreya Sans", sans-serif'; g.textAlign = 'center';
-      g.fillStyle = INK; g.fillText(r.name, x + 1, y - 84); g.fillStyle = '#e2c8ff'; g.fillText(r.name, x, y - 85);
+      g.fillStyle = INK; g.fillText(r.name, x + 1, y - 84); g.fillStyle = r.id === this.target ? '#ffd36a' : '#e2c8ff'; g.fillText(r.name, x, y - 85);
     }
     this.drawFloaters();
     this.drawPrompt(t);
@@ -511,6 +547,201 @@ export class Game {
   private drawScene(key: string, x: number, y: number, size: number) {
     const img = Game.sceneImg[key];
     if (img?.complete && img.naturalWidth) this.ctx.drawImage(img, x - size / 2, y - size * 0.94, size, size);
+  }
+
+  // ------------------------------------------------------------------------------
+  // Combate estilo Albion (cliente): fijar objetivo, lanzar al cursor y predecir recargas.
+  // ------------------------------------------------------------------------------
+
+  private worldOf(sx: number, sy: number) {
+    return { x: (sx - this.W / 2) / this.scale + this.cam.x, y: (sy - this.H / 2) / this.scale + this.cam.y };
+  }
+
+  /** Posición dibujada de otro jugador (la interpolada, la misma que ve el jugador). */
+  private remotePos(id: string) {
+    const r = this.remotes.get(id); if (!r) return null;
+    return sampleBuffer(r.buf, performance.now() - this.interpDelay);
+  }
+
+  private nearestRemote(maxDist: number) {
+    let best: Remote | null = null, bd = maxDist;
+    for (const r of this.remotes.values()) {
+      const p = this.remotePos(r.id); if (!p) continue;
+      const d = Math.hypot(p.x - this.me.x, p.y - this.me.y);
+      if (d < bd) { bd = d; best = r; }
+    }
+    return best;
+  }
+
+  private setTarget(id: string | null) {
+    if (id === this.target) return;
+    this.target = id; this.targetSetAt = performance.now();
+  }
+
+  private handleCombatInput(active: boolean) {
+    const ev = this.input.consumeEvents(), now = performance.now();
+    if (ev.click) {
+      // Clic sobre un enemigo lo fija; clic en el suelo lo suelta.
+      const w = this.worldOf(ev.click.x, ev.click.y);
+      let hit: string | null = null, bd = 48;
+      for (const r of this.remotes.values()) {
+        const p = this.remotePos(r.id); if (!p) continue;
+        const d = Math.hypot(p.x - w.x, p.y - 26 - w.y);
+        if (d < bd) { bd = d; hit = r.id; }
+      }
+      this.setTarget(hit);
+    }
+    if (ev.tab) this.setTarget(this.nearestRemote(10 * TILE)?.id ?? null);
+    if (ev.clear) this.setTarget(null);
+    if (this.input.consumeAttack()) this.setTarget(this.nearestRemote(9 * TILE)?.id ?? this.target);
+    if (!active) return;
+    if (ev.swap && now >= this.swapUntil) {
+      this.foco = this.foco === 0 ? 1 : 0; this.swapUntil = now + SWAP_MS; this.swapAt = now; this.pendingSwap = true;
+    }
+    for (const c of ev.casts) this.tryCast(c, now);
+  }
+
+  /** Lanzamiento al instante: se predice la recarga y el efecto; el servidor confirma. */
+  private tryCast(c: CastRequest, now: number) {
+    const ab = abilityFor(this.build, this.foco, c.slot);
+    if (now < this.gcdUntil || now < (this.cdById[ab.id] ?? 0)) return;
+    const range = (ab.range || 3) * TILE;
+    let x: number, y: number;
+    const tp = this.target ? this.remotePos(this.target) : null;
+    if (c.drag) {
+      const k = ab.aim === 'zona' ? Math.min(1, c.drag.len / 90) : 1;
+      x = this.me.x + (c.drag.dx / c.drag.len) * range * k; y = this.me.y + (c.drag.dy / c.drag.len) * range * k;
+    } else if (!this.input.touch && this.input.mouse) {
+      const w = this.worldOf(this.input.mouse.x, this.input.mouse.y); x = w.x; y = w.y + 22;
+    } else if (tp) { x = tp.x; y = tp.y; }
+    else { x = this.me.x + this.me.ax * range * 0.7; y = this.me.y + this.me.ay * range * 0.7; }
+    this.cdById[ab.id] = now + ab.cd * 1000; this.castAt[ab.id] = now; this.gcdUntil = now + GCD_MS;
+    this.pendingCast = { slot: c.slot, x: Math.round(x), y: Math.round(y), ...(this.target ? { target: this.target } : {}) };
+    const d = Math.hypot(x - this.me.x, y - this.me.y) || 1, dx = (x - this.me.x) / d, dy = (y - this.me.y) / d;
+    this.me.ax = dx; this.me.ay = dy;
+    if (ab.id === 'llamar_piedra') { this.dashLeft = DASH_S; this.dashDir = { x: dx, y: dy }; }
+    this.addFx(ab.id === 'llamar_piedra' ? 'embestida' : ab.id, this.me.x, this.me.y, { dx, dy, r: (ab.radius ?? 0) * TILE });
+  }
+
+  private addFx(kind: string, x: number, y: number, o: { dx?: number; dy?: number; r?: number; x2?: number; y2?: number } = {}) {
+    const dur = kind === 'bolt' ? 140 : kind === 'embestida' ? 400 : 520;
+    this.fxs.push({ kind, x, y, ...o, t0: performance.now(), dur });
+    if (this.fxs.length > 60) this.fxs.shift();
+  }
+
+  /** Ataque básico de otro jugador: giro del báculo o disparo de ámbar hacia su objetivo. */
+  private remoteAttack(r: Remote, o: { x: number; y: number; tg?: string | null; foco?: string }) {
+    const foco = FOCOS[o.foco ?? 'vara'];
+    if (foco?.melee) { r.swingAt = performance.now(); return; }
+    const tgt = o.tg === this.myId ? this.me : o.tg ? this.remotePos(o.tg) : null;
+    if (tgt) this.addFx('bolt', o.x, o.y - 26, { x2: tgt.x, y2: tgt.y - 26 });
+  }
+
+  /** Estado de combate que confirma el servidor. */
+  private syncCombat(m: any, now: number) {
+    const you = m.you;
+    if (you.build) this.build = you.build;
+    if (now - this.swapAt > 700 && (you.foco === 0 || you.foco === 1)) this.foco = you.foco;
+    this.slowMul = you.slow ?? 1;
+    if (you.cds) for (const slot of ['Q', 'E', 'R'] as Slot[]) {
+      const id = abilityFor(this.build, this.foco, slot).id, srv = now + you.cds[slot];
+      // Si el servidor rechazó un lanzamiento predicho, la recarga vuelve a su valor real.
+      if (srv > (this.cdById[id] ?? 0) + 80 || now - (this.castAt[id] ?? -1e9) > 700) this.cdById[id] = srv;
+    }
+    if (you.target == null && this.target && this.targetSent === this.target && now - this.targetSetAt > 700) this.target = null;
+    if (you.attackAt && you.attackAt > this.lastAttackAt) {
+      const first = this.lastAttackAt === 0;
+      this.lastAttackAt = you.attackAt;
+      if (!first) {
+        const foco = FOCOS[this.build.focos[this.foco]];
+        const tp = this.target ? this.remotePos(this.target) : null;
+        if (foco.melee) this.swingAt = now;
+        else if (tp) this.addFx('bolt', this.me.x, this.me.y - 26, { x2: tp.x, y2: tp.y - 26 });
+      }
+    }
+    const seen = new Set<number>();
+    for (const p of m.projectiles ?? []) { this.projectiles.set(p.id, { x: p.x, y: p.y, vx: p.vx, vy: p.vy, t: now }); seen.add(p.id); }
+    for (const id of this.projectiles.keys()) if (!seen.has(id)) this.projectiles.delete(id);
+  }
+
+  /** Marcas en el piso: aro del objetivo, alcance del básico si está lejos y hielo de ralentización. */
+  private drawGroundMarks(remotes: { r: Remote; x: number; y: number }[], sec: number) {
+    const g = this.ctx;
+    for (const { r, x, y } of remotes) {
+      if (r.slow) { g.strokeStyle = 'rgba(140,210,255,.75)'; g.lineWidth = 3; g.beginPath(); g.ellipse(x, y + 2, 26, 10, 0, 0, 6.283); g.stroke(); }
+      if (r.id !== this.target) continue;
+      const pulse = 1 + Math.sin(sec * 5) * 0.06;
+      g.strokeStyle = '#1d0c16'; g.lineWidth = 6; g.beginPath(); g.ellipse(x, y + 2, 30 * pulse, 12 * pulse, 0, 0, 6.283); g.stroke();
+      g.strokeStyle = '#ffd36a'; g.lineWidth = 3; g.setLineDash([10, 6]); g.lineDashOffset = -sec * 20; g.stroke(); g.setLineDash([]);
+      const foco = FOCOS[this.build.focos[this.foco]];
+      if (!inBasicRange(foco, Math.hypot(x - this.me.x, y - this.me.y), PLAYER.radius)) {
+        g.strokeStyle = 'rgba(255,211,106,.35)'; g.lineWidth = 2; g.setLineDash([6, 8]);
+        g.beginPath(); g.ellipse(this.me.x, this.me.y, foco.basic.range * TILE + PLAYER.radius, (foco.basic.range * TILE + PLAYER.radius) * 0.9, 0, 0, 6.283); g.stroke(); g.setLineDash([]);
+      }
+    }
+    if (this.slowMul < 1) { g.strokeStyle = 'rgba(140,210,255,.75)'; g.lineWidth = 3; g.beginPath(); g.ellipse(this.me.x, this.me.y + 2, 26, 10, 0, 0, 6.283); g.stroke(); }
+  }
+
+  /** Proyectiles y efectos de habilidades (en modo aditivo, brillan sobre la oscuridad). */
+  private drawCombatFx(now: number, art: Sprites) {
+    const g = this.ctx;
+    for (const p of this.projectiles.values()) {
+      const k = Math.min(0.12, (now - p.t) / 1000), x = p.x + p.vx * k, y = p.y + p.vy * k;
+      g.globalAlpha = 0.9; g.drawImage(art.dot.gold, x - 16, y - 16, 32, 32);
+      g.globalAlpha = 1; g.strokeStyle = 'rgba(255,200,110,.7)'; g.lineWidth = 3; g.beginPath(); g.moveTo(x, y); g.lineTo(x - p.vx * 0.04, y - p.vy * 0.04); g.stroke();
+    }
+    this.fxs = this.fxs.filter((f) => now - f.t0 < f.dur);
+    for (const f of this.fxs) {
+      const k = (now - f.t0) / f.dur, a = 1 - k;
+      if (f.kind === 'temblor' || f.kind === 'barrido') {
+        const R = (f.r || 160) * (0.35 + 0.65 * k);
+        g.strokeStyle = f.kind === 'temblor' ? `rgba(255,160,80,${a * 0.8})` : `rgba(255,220,140,${a})`; g.lineWidth = 10 * a + 2;
+        g.beginPath(); g.ellipse(f.x, f.y, R, R * 0.6, 0, 0, 6.283); g.stroke();
+        if (f.kind === 'barrido') { g.lineWidth = 6; g.beginPath(); g.arc(f.x, f.y - 22, 64, k * 9, k * 9 + 2.4); g.stroke(); }
+      } else if (f.kind === 'embestida') {
+        g.strokeStyle = `rgba(255,170,90,${a * 0.8})`; g.lineWidth = 16 * a + 2;
+        g.beginPath(); g.moveTo(f.x, f.y - 20); g.lineTo(f.x + (f.dx ?? 0) * 4 * TILE * Math.min(1, k * 1.6), f.y - 20 + (f.dy ?? 0) * 4 * TILE * Math.min(1, k * 1.6)); g.stroke();
+      } else if (f.kind === 'andanada') {
+        g.globalAlpha = a; g.drawImage(art.dot.gold, f.x + (f.dx ?? 0) * 30 - 30, f.y - 50 + (f.dy ?? 0) * 30, 60, 60); g.globalAlpha = 1;
+      } else if (f.kind === 'bolt' && f.x2 != null && f.y2 != null) {
+        const bx = f.x + (f.x2 - f.x) * k, by = f.y + (f.y2 - f.y) * k;
+        g.globalAlpha = 0.95; g.drawImage(art.dot.gold, bx - 12, by - 12, 24, 24); g.globalAlpha = 1;
+        g.strokeStyle = 'rgba(255,200,110,.75)'; g.lineWidth = 3; g.beginPath(); g.moveTo(bx, by); g.lineTo(bx - (f.x2 - f.x) * 0.12, by - (f.y2 - f.y) * 0.12); g.stroke();
+      }
+    }
+  }
+
+  /** Guía de apuntado mientras se arrastra un botón de habilidad en móvil. */
+  private drawAimGuide() {
+    const d = this.input.aimDrag; if (!d || d.len < 18) return;
+    const ab = abilityFor(this.build, this.foco, d.slot), g = this.ctx;
+    const range = (ab.range || 3) * TILE, dx = d.dx / d.len, dy = d.dy / d.len;
+    g.strokeStyle = 'rgba(255,211,106,.85)'; g.lineWidth = 4; g.setLineDash([12, 8]);
+    if (ab.aim === 'propio') { g.beginPath(); g.ellipse(this.me.x, this.me.y, (ab.radius ?? 2) * TILE, (ab.radius ?? 2) * TILE * 0.6, 0, 0, 6.283); g.stroke(); }
+    else if (ab.aim === 'zona') { const k = Math.min(1, d.len / 90); g.beginPath(); g.arc(this.me.x + dx * range * k, this.me.y + dy * range * k, (ab.radius ?? 1) * TILE, 0, 6.283); g.stroke(); }
+    else { g.beginPath(); g.moveTo(this.me.x, this.me.y - 20); g.lineTo(this.me.x + dx * range, this.me.y - 20 + dy * range); g.stroke(); }
+    g.setLineDash([]);
+  }
+
+  /** Barra de habilidades (PC) y botones táctiles: nombre, recarga y Foco en la mano. */
+  private updateAbilityHud() {
+    const now = performance.now();
+    for (const el of this.abEls) {
+      const slot = el.dataset.slot as Slot | 'S';
+      let name: string, left: number, total: number;
+      if (slot === 'S') { const f = FOCOS[this.build.focos[this.foco]]; name = f.name; left = this.swapUntil - now; total = SWAP_MS; }
+      else { const ab = abilityFor(this.build, this.foco, slot); name = ab.name; left = Math.max((this.cdById[ab.id] ?? 0) - now, this.gcdUntil - now); total = Math.max(ab.cd * 1000, GCD_MS); }
+      const nm = el.querySelector<HTMLElement>('.ab-name'); if (nm && nm.textContent !== name) nm.textContent = name;
+      if (el.title !== name) el.title = name;
+      const cd = el.querySelector<HTMLElement>('.ab-cd');
+      if (cd) {
+        const p = left > 0 ? Math.min(1, left / total) : 0;
+        cd.style.setProperty('--p', p.toFixed(3));
+        const txt = left > 400 ? String(Math.ceil(left / 1000)) : '';
+        if (cd.textContent !== txt) cd.textContent = txt;
+      }
+      el.dataset.ready = String(left <= 0);
+    }
   }
 
   private blob(x: number, y: number, rx: number) {
@@ -565,14 +796,14 @@ export class Game {
   }
 
   /** Arco del golpe propio, dibujado al instante (predicción en el cliente). */
-  private drawSwing(t: number) {
-    const k = (t - this.swingAt) / 260;
+  private drawSwing(_t: number) {
+    const k = (performance.now() - this.swingAt) / 260;
     if (k < 0 || k > 1 || !this.me.alive) return;
     const g = this.ctx, a0 = Math.atan2(this.me.ay, this.me.ax);
     g.save();
     g.globalCompositeOperation = 'lighter';
     g.strokeStyle = `rgba(255,190,90,${(1 - k) * 0.9})`; g.lineWidth = 9; g.lineCap = 'round';
-    g.beginPath(); g.arc(this.me.x, this.me.y - 22, PLAYER.attackRange * 0.75, a0 - 1.1, a0 - 1.1 + 2.2 * Math.min(1, k * 1.6)); g.stroke();
+    g.beginPath(); g.arc(this.me.x, this.me.y - 22, 72, a0 - 1.1, a0 - 1.1 + 2.2 * Math.min(1, k * 1.6)); g.stroke();
     g.restore();
   }
 

@@ -12,3 +12,4 @@ export * from './view';
 export * from './lagcomp';
 export * from './prediction';
 export * from './templates';
+export * from './abilities';

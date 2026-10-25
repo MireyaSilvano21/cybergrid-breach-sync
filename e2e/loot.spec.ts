@@ -8,15 +8,26 @@ async function state(page: Page) {
   }));
 }
 
-/** Camina hacia el cofre más cercano con el teclado hasta quedar dentro del alcance. */
+/**
+ * Camina hacia el cofre más cercano con el teclado hasta quedar dentro del alcance.
+ * Si algo lo detiene (una columna o una caja de la plantilla), rodea hacia un lado.
+ */
 async function walkToChest(page: Page) {
-  for (let i = 0; i < 40; i++) {
+  let last = { x: NaN, y: NaN }, stuck = 0, side = 1;
+  for (let i = 0; i < 70; i++) {
     const s = await state(page);
     const dx = s.cx - s.x, dy = s.cy - s.y;
     if (Math.hypot(dx, dy) < 40) return;
-    const keys = [Math.abs(dx) > 12 ? (dx > 0 ? 'd' : 'a') : null, Math.abs(dy) > 12 ? (dy > 0 ? 's' : 'w') : null].filter(Boolean) as string[];
+    stuck = Math.hypot(s.x - last.x, s.y - last.y) < 3 ? stuck + 1 : 0;
+    last = { x: s.x, y: s.y };
+    let keys = [Math.abs(dx) > 12 ? (dx > 0 ? 'd' : 'a') : null, Math.abs(dy) > 12 ? (dy > 0 ? 's' : 'w') : null].filter(Boolean) as string[];
+    if (stuck >= 2) {
+      // Rodeo: moverse en perpendicular a la dirección principal durante un momento.
+      keys = Math.abs(dx) > Math.abs(dy) ? [side > 0 ? 's' : 'w'] : [side > 0 ? 'd' : 'a'];
+      if (stuck > 5) { side = -side; stuck = 0; }
+    }
     for (const k of keys) await page.keyboard.down(k);
-    await page.waitForTimeout(90);
+    await page.waitForTimeout(stuck >= 2 ? 250 : 90);
     for (const k of keys) await page.keyboard.up(k);
   }
   throw new Error('No se llegó al cofre');

@@ -66,3 +66,24 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--rune);outline-o
 .inv-value{font-variant-numeric:tabular-nums;color:var(--ember);font-size:.9rem;min-width:3ch;text-align:right}
 .inv-value::after{content:" ◆";color:var(--muted)}
 @media (max-width:520px){.slots{grid-template-columns:repeat(10,13px)}.slot{height:13px}}
+
+/* Barra de habilidades estilo Albion (PC) */
+.abil{position:absolute;left:50%;transform:translateX(-50%);bottom:calc(104px + env(safe-area-inset-bottom));display:flex;gap:8px;pointer-events:auto}
+.touch-on .abil{display:none}
+.ab{position:relative;width:64px;height:64px;border-radius:12px;background:rgba(23,12,28,.86);border:2px solid var(--line);display:flex;flex-direction:column;align-items:center;justify-content:flex-end;padding:4px;overflow:hidden}
+.ab.swap{width:84px;border-color:rgba(255,179,71,.45)}
+.ab-key{position:absolute;top:3px;left:6px;font:700 .8rem var(--body);color:var(--ember)}
+.ab-name{font-size:.68rem;line-height:1.05;text-align:center;color:var(--text)}
+.ab-cd{position:absolute;inset:0;border-radius:inherit;pointer-events:none;background:conic-gradient(rgba(8,3,12,.72) calc(var(--p,0)*1turn),transparent 0);display:grid;place-items:center;font:700 1rem var(--body);color:#fff}
+.ab[data-ready="false"]{border-color:rgba(255,255,255,.15)}
+/* Táctil: Atacar grande y las habilidades en arco a su alrededor */
+.tring{position:relative;width:220px;height:200px}
+.tring .tbtn{position:absolute}
+.tring .atk{right:0;bottom:0}
+.tbtn.ab,.tbtn.sw{width:58px;height:58px;border:2px solid rgba(243,230,216,.45);color:var(--text);font:700 1rem var(--body);overflow:hidden}
+#t-q{right:104px;bottom:6px}
+#t-e{right:92px;bottom:76px}
+#t-r{right:28px;bottom:112px}
+#t-swap{right:150px;bottom:110px;width:46px;height:46px;font-size:1.1rem;border-color:rgba(255,179,71,.6)}
+.tbtns{flex-direction:column;align-items:flex-end}
+.tbtns .use{margin-right:150px;margin-bottom:-60px;width:52px;height:52px}

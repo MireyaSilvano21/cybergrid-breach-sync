@@ -81,7 +81,13 @@
       <span id="inv-value" class="inv-value">0</span>
     </div>
     <div id="sync" class="sync" hidden><div id="sync-bar"></div><span>Sincronizando con el portal…</span></div>
-    <p id="hint" class="hint">WASD mover · clic atacar · F abrir cofres y tomar botín · mantener F en un portal abierto para escapar</p>
+    <div id="abilities" class="abil" aria-label="Habilidades">
+      <div class="ab" data-slot="Q"><span class="ab-key">Q</span><span class="ab-name"></span><span class="ab-cd"></span></div>
+      <div class="ab" data-slot="E"><span class="ab-key">E</span><span class="ab-name"></span><span class="ab-cd"></span></div>
+      <div class="ab" data-slot="R"><span class="ab-key">R</span><span class="ab-name"></span><span class="ab-cd"></span></div>
+      <div class="ab swap" data-slot="S"><span class="ab-key">Espacio</span><span class="ab-name"></span><span class="ab-cd"></span></div>
+    </div>
+    <p id="hint" class="hint">WASD mover · clic en un enemigo para fijarlo · Q/E/R habilidades · Espacio cambiar Foco · F usar</p>
     <div id="player-state" hidden data-x="0" data-y="0" data-hp="100"></div>
     <div id="touch" class="touch" hidden>
       <div id="stick-zone" class="stick-zone" aria-hidden="true"></div>
@@ -89,7 +95,13 @@
       <button id="fs-btn" class="fs-btn" type="button">Pantalla completa</button>
       <div class="tbtns">
         <button id="t-interact" class="tbtn use" aria-label="Interactuar">Usar</button>
-        <button id="t-attack" class="tbtn atk" aria-label="Atacar">Atacar</button>
+        <div class="tring">
+          <button id="t-q" class="tbtn ab" data-slot="Q" aria-label="Nombre 1">Q<span class="ab-cd"></span></button>
+          <button id="t-e" class="tbtn ab" data-slot="E" aria-label="Nombre 2">E<span class="ab-cd"></span></button>
+          <button id="t-r" class="tbtn ab" data-slot="R" aria-label="Inscripción">R<span class="ab-cd"></span></button>
+          <button id="t-swap" class="tbtn sw" data-slot="S" aria-label="Cambiar de Foco">⇄<span class="ab-cd"></span></button>
+          <button id="t-attack" class="tbtn atk" aria-label="Fijar objetivo y atacar">Atacar</button>
+        </div>
       </div>
     </div>
     <div id="result" class="result" hidden>
