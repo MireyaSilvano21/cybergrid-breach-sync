@@ -3,6 +3,7 @@ import { Net } from './net';
 import { Game } from './game';
 import { TEAMS, MAX_TEAM_SIZE } from '@shared/index';
 import { HubUI } from './hubui';
+import { setupSplash } from './fullscreen';
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 const screens = ['screen-login', 'screen-lobby', 'screen-game'] as const;
@@ -195,6 +196,8 @@ net.on('end', (m) => {
 });
 net.on('extracted', () => { $('result-title').textContent = 'Escapaste de la Grid'; });
 $('back-btn').addEventListener('click', () => { game?.destroy(); game = null; enterLobby(); });
+
+setupSplash();
 
 // ---------- Arranque: las salas están protegidas, sin sesión se muestra el acceso ----------
 if (token) enterLobby(); else show('screen-login');

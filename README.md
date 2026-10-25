@@ -9,7 +9,7 @@ Videojuego web multijugador de extracción en tiempo real. Canvas 2D en el clien
 | Arquitectura de red y sockets | `server/src/index.ts` (WebSocket en `/ws`, solo con token), `server/src/game.ts` (posiciones, colisiones, daño y extracción calculados en el servidor a 30 Hz). Ping/pong cada 2 s medido en un Web Worker, latencia visible en el HUD. Compensación de lag en los golpes (el servidor revisa contra lo que vio el atacante, máx. 250 ms), ataque predicho en el cliente y búfer de interpolación adaptable a la variación de la red. |
 | Motor Canvas 2D y controles | `client/src/game.ts`: bucle con *delta time* (`requestAnimationFrame`), interpolación de jugadores remotos y predicción local con reconciliación por comandos (`shared/src/prediction.ts`: el servidor aplica cada tramo de movimiento en orden y confirma hasta cuál llegó; el cliente reaplica lo pendiente, así que no hay tirones aunque la red varíe). `client/src/input.ts`: teclado/mouse en PC; joystick y botones táctiles que solo aparecen en pantallas táctiles. |
 | Endpoints de prueba | `GET /api/test/telemetry` (Win Rate, KDR, supervivencia y valor promedio extraído; agregados O(1)) y `POST /api/test/seed` (100–1000 partidas, validado con Zod). |
-| Pruebas y CI | 90 pruebas en Vitest (`shared/test`, `server/test`), 11 flujos en Playwright (`e2e/`: acceso, campamento con escuadra y emparejamiento, lobbies, equipos, canvas en PC y móvil, arrastre táctil, saqueo, combate apuntado en PC y combate táctil), pipeline en `.github/workflows/ci.yml` en cada Pull Request. |
+| Pruebas y CI | 92 pruebas en Vitest (`shared/test`, `server/test`), 11 flujos en Playwright (`e2e/`: acceso, campamento con escuadra y emparejamiento, lobbies, equipos, canvas en PC y móvil, arrastre táctil, saqueo, combate apuntado en PC y combate táctil), pipeline en `.github/workflows/ci.yml` en cada Pull Request. |
 | Despliegue | `render.yaml` (Render, un solo servicio con SSL). |
 
 ## Bucle de juego actual
@@ -27,7 +27,7 @@ Todo se apunta: al **mantener** clic izquierdo o Q/E/R aparece en el piso la for
 | Vaerel (soporte) | Hilo de Vida: cura en área | Atadura: proyectil que inmoviliza |
 | Orrath (reconocimiento) | Escuchar al Viento: revela rivales cercanos a través de muros | Ráfaga: cono que empuja |
 
-Los 8 Focos (dos por build, cambio con Espacio) traen su básico y su Inscripción (R): Vara de Fresno (arco · Barrido), Anillo de Ámbar (disparo · Andanada), Martillo de Basalto (arco pesado · Fractura), Daga de Ceniza (cortes rápidos · Corte espectral), Arco de Fresno (flecha larga · Lluvia de flechas), Orbe de Hilo (esfera lenta · Vínculo, curación), Campana del Viento (onda corta · Eco) y Grimorio Vacío (página que atraviesa · Grieta). Todo está definido en `shared/src/abilities.ts`.
+Los 10 Focos (dos por build, cambio con Espacio) traen su básico y su Inscripción (R): Daga Carmesí (cortes rápidos · Abanico de dagas), Hoja de Llama (latigazo largo · Llamarada), Cetro Lunar (esfera · Vínculo, curación), Lanza Ígnea (estocada en línea · Lanzamiento que atraviesa), Guadaña de Rosas (arco muy amplio · Siega, que atrae), Espadas Gemelas (golpes rápidos · Corte espectral), Martillo de Rosa (golpe pesado · Fractura), Cetro de Rubí (disparo · Grieta), Revólver Arcano (balas rápidas · Vaciar el tambor) y Arco Alado (flecha larga · Lluvia de flechas). Todo está definido en `shared/src/abilities.ts`; en la mano se dibujan formas provisionales hasta tener el arte final.
 
 
 Después de entrar, el lobby tiene tres pestañas:
@@ -51,7 +51,10 @@ Hasta 4 equipos por sala (Ámbar, Violeta, Jade y Carmín) de hasta 3 jugadores;
 
 Se genera un cuarto del mapa y se copia girado 90° alrededor del centro (simetría de rehilete), así los 4 equipos reciben el mismo cuarto. Las plantillas traen abismos (se ven, no se cruzan), muros delgados, rejas de un solo sentido, sellos de bóveda que se abren en la Primera Llamada y del Corazón en la Segunda, cobertura y muros en diagonal con colisión exacta.
 
-### Estilo visual "Forja Apagada"
+### Móvil
+
+Al abrir en una pantalla táctil aparece **Toca para empezar**: el toque activa la pantalla completa en horizontal, como un juego (los navegadores solo la permiten tras un toque). En iPhone, Safari no permite pantalla completa en páginas; se agrega el juego a la pantalla de inicio y abre sin barras gracias al manifiesto. Para el rendimiento, en táctil la densidad de dibujo se limita a 1.5x, la oscuridad se calcula a un tercio de resolución, las luces y la viñeta se dibujan desde imágenes precalculadas y, si el dispositivo baja de 45 FPS, la resolución baja sola (y vuelve a subir al recuperarse). Con `?perf` en la dirección se miden los tiempos de cada parte del dibujo.
+
 
 El cliente dibuja todo en Canvas 2D con contorno de tinta ciruela y luces saturadas: piso de losas generado por trozos de 8×8 casillas (caché LRU), muros en tres cuartos con cara y tapa, antorchas, monolitos con runas, estrado de portal con remolino, pasto que se aparta al pasar y personajes animados por piezas que miran hacia donde apuntan. La oscuridad se calcula a media resolución y la visión del jugador sigue siendo el mismo radio para todos (`VISION_RADIUS`). Los sprites de los cofres están normalizados a 256×256 en WebP con la base al 94 % de la altura, así los tres estados encajan sin saltos.
 

@@ -113,7 +113,7 @@ export class CampScene {
 
 /** Vista previa de Preparación: el personaje gira entre frente, lado y espalda. */
 export class PreviewScene {
-  private app: Appearance | null = null; private foco = 'vara';
+  private app: Appearance | null = null; private foco = 'gemelas';
   private raf = 0; private running = false; private t0 = performance.now();
   view: View | null = null;
   constructor(private canvas: HTMLCanvasElement) { sprites ??= new Sprites(); }

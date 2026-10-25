@@ -347,65 +347,104 @@ function leg(side: 'L' | 'R', far = false): Piece[] {
   ];
 }
 
-/** Foco en la mano: Vara de Fresno o Anillo de Ámbar. */
-function weapon(foco: string): Piece {
-  return { bone: 'handR', draw: (c) => {
-    const w = c.j.wristR, a = c.b.dims.arm, p = c.p, H = c.b.dims.height;
-    if (foco === 'anillo') {
-      const g = p.g, x = w[0], y = w[1] + a * 0.35, pulse = 1 + Math.sin(c.t * 6) * 0.1;
-      const gr = g.createRadialGradient(x, y, 0, x, y, a * 1.6 * pulse);
-      gr.addColorStop(0, 'rgba(255,200,90,.85)'); gr.addColorStop(1, 'rgba(255,140,40,0)');
-      g.fillStyle = gr; g.beginPath(); g.arc(x, y, a * 1.6 * pulse, 0, 6.283); g.fill();
-      ellipse(p, x, y + a * 0.15, a * 0.42, a * 0.2, '#ffb347', LW * 0.7);
-      return;
-    }
-    const x = w[0] + (c.view === 'side' ? a * 0.15 : 0), y0 = w[1] + a * 0.35, top = y0 - H * 0.52, bot = y0 + H * 0.16;
+/**
+ * Foco en la mano: formas provisionales de las 10 armas de referencia (el arte final las reemplaza).
+ * Se dibujan en la mano derecha; las Espadas Gemelas llevan una hoja en cada mano.
+ */
+function weapon(foco: string, hand: 'R' | 'L' = 'R'): Piece {
+  return { bone: hand === 'R' ? 'handR' : 'handL', draw: (c) => {
+    const w = hand === 'R' ? c.j.wristR : c.j.wristL, a = c.b.dims.arm, p = c.p, H = c.b.dims.height;
+    const x = w[0] + (c.view === 'side' ? a * 0.15 : 0), y0 = w[1] + a * 0.35;
     const glow = (gx: number, gy: number, r: number, rgb: string) => {
       const g = p.g, gr = g.createRadialGradient(gx, gy, 0, gx, gy, r);
-      gr.addColorStop(0, `rgba(${rgb},.75)`); gr.addColorStop(1, `rgba(${rgb},0)`);
+      gr.addColorStop(0, `rgba(${rgb},.7)`); gr.addColorStop(1, `rgba(${rgb},0)`);
       g.fillStyle = gr; g.beginPath(); g.arc(gx, gy, r, 0, 6.283); g.fill();
     };
+    const shaft = (top: number, bot: number, col: string, wd = 1.7) => capsule(p, [x, bot], [x, top], LW * wd, col);
     switch (foco) {
-      case 'martillo': // mango corto y cabeza de basalto con runa
-        capsule(p, [x, bot], [x, y0 - H * 0.32], LW * 1.9, '#5a3a24');
-        shape(p, [[x - 110, y0 - H * 0.42], [x + 110, y0 - H * 0.42], [x + 110, y0 - H * 0.3], [x - 110, y0 - H * 0.3]], '#6c6d7c', false);
-        line(p, [[x - 40, y0 - H * 0.36], [x + 40, y0 - H * 0.36]], '#ff8a3a', LW * 0.6);
+      case 'daga': // hoja curva carmesí, mango claro con guarda dorada
+        shape(p, [[x - 26, y0 - 30], [x + 22, y0 - 30], [x + 40, y0 - H * 0.16], [x + 20, y0 - H * 0.3], [x - 4, y0 - H * 0.2]], '#c8323c');
+        capsule(p, [x - 48, y0 - 26], [x + 48, y0 - 26], LW * 1.3, '#d9a93a');
+        shaft(y0 - 20, y0 + 40, '#e8e0d0', 1.4);
         return;
-      case 'daga': // hoja corta de ceniza
-        shape(p, [[x - 30, y0 - 20], [x + 30, y0 - 20], [x + 18, y0 - H * 0.2], [x, y0 - H * 0.27], [x - 18, y0 - H * 0.2]], '#c9b8dd', false);
-        capsule(p, [x - 50, y0 - 18], [x + 50, y0 - 18], LW * 1.4, '#3a2a44');
-        return;
-      case 'arco': { // arco de madera con cuerda
-        const g = p.g, r = H * 0.3;
-        g.beginPath(); g.arc(x - r * 0.55, y0 - H * 0.1, r, -1.05, 1.05); g.lineWidth = LW * 2.2; g.strokeStyle = INK; g.stroke();
-        g.lineWidth = LW * 1.2; g.strokeStyle = col('#8a6a3c', p.k); g.stroke();
-        const yA = y0 - H * 0.1 - Math.sin(1.05) * r, yB = y0 - H * 0.1 + Math.sin(1.05) * r, xs = x - r * 0.55 + Math.cos(1.05) * r;
-        line(p, [[xs, yA], [xs, yB]], '#f4efe4', LW * 0.4);
+      case 'llama': { // hoja de fuego ondulada sobre un mango rojo
+        glow(x, y0 - H * 0.28, a * 2.4, '255,180,60');
+        const pts: [number, number][] = [];
+        for (let k = 0; k <= 8; k++) pts.push([x + Math.sin(k * 0.9 + c.t * 6) * 18 + 16, y0 - 50 - k * H * 0.055]);
+        for (let k = 8; k >= 0; k--) pts.push([x + Math.sin(k * 0.9 + c.t * 6) * 18 - 16, y0 - 50 - k * H * 0.055]);
+        shape(p, pts, '#ffd36a', true, LW * 0.8);
+        capsule(p, [x - 44, y0 - 40], [x + 44, y0 - 40], LW * 1.3, '#3a2a44');
+        shaft(y0 - 36, y0 + 50, '#9c2a3a', 1.5);
         return;
       }
-      case 'orbe': // esfera de hilo que flota sobre la mano
-        glow(x, y0 - H * 0.12, a * 1.8, '140,255,170');
-        ellipse(p, x, y0 - H * 0.12, a * 0.8, a * 0.8, '#bff2c6', LW * 0.8);
-        line(p, [[x - a * 0.6, y0 - H * 0.12], [x + a * 0.6, y0 - H * 0.1]], '#5f9a64', LW * 0.45);
+      case 'cetro_lunar': { // vara dorada con aro lunar y cristal rosa
+        const top = y0 - H * 0.5;
+        shaft(top + 60, y0 + H * 0.16, '#d9b47a', 1.3);
+        p.g.beginPath(); p.g.arc(x, top, 70, -2.6, 1.6); p.g.lineWidth = LW * 1.6; p.g.strokeStyle = INK; p.g.stroke(); p.g.lineWidth = LW * 0.8; p.g.strokeStyle = col('#e2b23e', p.k); p.g.stroke();
+        glow(x, top, 90, '230,160,255');
+        shape(p, [[x, top - 44], [x + 26, top], [x, top + 44], [x - 26, top]], '#e8a8f0', false);
         return;
-      case 'campana': // campana colgando de un mango
-        capsule(p, [x, y0 + 10], [x, y0 - H * 0.12], LW * 1.6, '#5a3a24');
-        shape(p, [[x - 26, y0 - H * 0.12], [x + 26, y0 - H * 0.12], [x + 70, y0 + H * 0.06], [x - 70, y0 + H * 0.06]], '#7fd6e0');
+      }
+      case 'lanza': { // asta oscura con puntas ígneas en ambos extremos
+        const top = y0 - H * 0.58, bot = y0 + H * 0.3;
+        shaft(top + 40, bot - 30, '#3a2a2a', 1.4);
+        glow(x, top, 80, '255,140,50');
+        shape(p, [[x, top - 90], [x + 34, top + 10], [x + 70, top + 4], [x + 18, top + 50], [x - 18, top + 50], [x - 70, top + 4], [x - 34, top + 10]], '#e8732a', false);
+        shape(p, [[x, bot + 50], [x + 22, bot - 20], [x - 22, bot - 20]], '#e8732a', false);
         return;
-      case 'grimorio': // libro abierto con brillo lila
-        glow(x, y0 - 20, a * 1.6, '200,150,255');
-        shape(p, [[x - 100, y0 - 70], [x, y0 - 50], [x + 100, y0 - 70], [x + 100, y0 + 40], [x, y0 + 60], [x - 100, y0 + 40]], '#e8dcf6', false);
-        line(p, [[x, y0 - 50], [x, y0 + 60]], '#6a4a8a', LW * 0.5);
+      }
+      case 'guadana': { // asta blanca larga con gran hoja en media luna y rubíes
+        const top = y0 - H * 0.55;
+        shaft(top, y0 + H * 0.2, '#ecebf2', 1.4);
+        shape(p, [[x + 20, top - 30], [x - 360, top + 20], [x - 470, top + 170], [x - 280, top + 70], [x - 20, top + 70]], '#dfe0ea', false);
+        ellipse(p, x, top + 20, 18, 18, '#c8323c', LW * 0.6);
         return;
+      }
+      case 'gemelas': // hoja lavanda con guarda dorada (una en cada mano)
+        shape(p, [[x - 20, y0 - 30], [x + 20, y0 - 30], [x + 14, y0 - H * 0.36], [x, y0 - H * 0.42], [x - 14, y0 - H * 0.36]], '#c8d4ff', false);
+        shape(p, [[x - 56, y0 - 40], [x - 20, y0 - 60], [x, y0 - 34], [x + 20, y0 - 60], [x + 56, y0 - 40], [x, y0 - 18]], '#e2b23e', false);
+        shaft(y0 - 20, y0 + 36, '#6a4a8a', 1.3);
+        return;
+      case 'martillo': { // cabeza rosa y dorada con espiral, asta clara
+        const top = y0 - H * 0.42;
+        shaft(top, y0 + H * 0.18, '#f0d8c8', 1.6);
+        shape(p, [[x - 110, top - 40], [x + 60, top - 40], [x + 140, top - 10], [x + 60, top + 40], [x - 110, top + 40]], '#f0a890', false);
+        ellipse(p, x - 20, top, 22, 22, '#e2b23e', LW * 0.6);
+        return;
+      }
+      case 'cetro_rubi': { // asta roja con media luna dorada y gema roja
+        const top = y0 - H * 0.5;
+        shaft(top + 40, y0 + H * 0.18, '#9c2a2a', 1.4);
+        p.g.beginPath(); p.g.arc(x, top, 62, 0.6, 5.2); p.g.lineWidth = LW * 2; p.g.strokeStyle = INK; p.g.stroke(); p.g.lineWidth = LW * 1.1; p.g.strokeStyle = col('#c9a35a', p.k); p.g.stroke();
+        glow(x, top, 70, '255,70,80');
+        ellipse(p, x, top, 30, 30, '#d0303c', LW * 0.8);
+        return;
+      }
+      case 'revolver': { // revólver blanco y dorado que apunta al frente
+        const fx = c.view === 'side' ? 1 : 0.4, dy = c.view === 'side' ? 0 : 1, k = 1.7;
+        shape(p, [[x - 20 * k, y0 - 30 * k], [x + 150 * fx * k, y0 - 30 * k + 40 * dy * k], [x + 150 * fx * k, y0 + 6 * k + 40 * dy * k], [x + 30 * k, y0 + 6 * k], [x + 10 * k, y0 + 60 * k], [x - 30 * k, y0 + 50 * k]], '#f0f0f8', false);
+        ellipse(p, x + 30 * fx * k, y0 - 12 * k + 10 * dy * k, 22 * k, 18 * k, '#d9b47a', LW * 0.6);
+        return;
+      }
+      case 'arco': { // arco dorado con alas de plumas blancas
+        const g = p.g, r = H * 0.32, cx = x - r * 0.5, cy = y0 - H * 0.1;
+        for (const sgn of [-1, 1]) {
+          const ex = cx + Math.cos(1.0) * r, ey = cy + sgn * Math.sin(1.0) * r;
+          shape(p, [[ex, ey], [ex - 60, ey + sgn * 20], [ex - 110, ey - sgn * 40], [ex - 40, ey - sgn * 70]], '#f4f4f8', false);
+        }
+        g.beginPath(); g.arc(cx, cy, r, -1.0, 1.0); g.lineWidth = LW * 2; g.strokeStyle = INK; g.stroke(); g.lineWidth = LW; g.strokeStyle = col('#d9b47a', p.k); g.stroke();
+        line(p, [[cx + Math.cos(1) * r, cy - Math.sin(1) * r], [cx + Math.cos(1) * r, cy + Math.sin(1) * r]], '#ffffff', LW * 0.35);
+        return;
+      }
     }
-    capsule(p, [x, bot], [x, top + 40], LW * 1.9, '#6b4226');
-    shape(p, [[x, top - 70], [x + 46, top], [x, top + 70], [x - 46, top]], '#ffb347', false);
+    // Sin Foco conocido: vara simple.
+    shaft(y0 - H * 0.5, y0 + H * 0.16, '#6b4226', 1.9);
   } };
 }
 
 /** Orden de las piezas por vista (de atrás hacia adelante). */
 function layers(view: View, foco: string | null): Piece[] {
-  const w = foco ? [weapon(foco)] : [];
+  const w = foco ? [weapon(foco), ...(foco === 'gemelas' ? [weapon(foco, 'L')] : [])] : [];
   if (view === 'front') return [cape, hairBack, ...leg('L'), ...leg('R'), pelvis, neck, torso, skirt, sash, ...arm('L'), ...arm('R'), ...w, face, hairFront, hoodFront, accessories];
   if (view === 'back') return [...w, hairBack, ...leg('L'), ...leg('R'), pelvis, neck, torso, skirt, sash, cape, ...arm('L'), ...arm('R'), face, hairFront, hoodFront, accessories];
   return [...arm('L', true), ...leg('L', true), cape, hairBack, ...leg('R'), pelvis, neck, torso, skirt, sash, face, hairFront, hoodFront, accessories, ...arm('R'), ...w];

@@ -13,7 +13,7 @@ function arena(builds: { school?: string; focos?: [string, string] }[], teams?: 
     const id = `p${i}`; sent[id] = [];
     const conn: Conn = { id, name: `jugador${i}`, send: (m: any) => sent[id].push(m) };
     const base = defaultProfile(id);
-    const profile: Profile = { ...base, build: { school: (b.school ?? 'tharven') as Profile['build']['school'], focos: b.focos ?? ['vara', 'anillo'] } };
+    const profile: Profile = { ...base, build: { school: (b.school ?? 'tharven') as Profile['build']['school'], focos: b.focos ?? ['gemelas', 'revolver'] } };
     return { conn, team: teams?.[i] ?? i, profile };
   });
   const match = new Match(entries, () => {});
@@ -26,7 +26,7 @@ function arena(builds: { school?: string; focos?: [string, string] }[], teams?: 
 const lastSnap = (sent: any[]) => sent.filter((m) => m.type === 'snap').at(-1);
 
 describe('Básico apuntado con munición', () => {
-  it('el arco de la Vara solo golpea hacia donde se apunta y gasta una carga', () => {
+  it('el arco de las Espadas Gemelas solo golpea hacia donde se apunta y gasta una carga', () => {
     const { match, actors: [a, b] } = arena([{}, {}]);
     b.y = a.y + 70;
     match.handleInput('p0', input(1, { fire: { x: a.x, y: a.y - 100, n: 1 } })); // hacia arriba: falla
@@ -34,7 +34,7 @@ describe('Básico apuntado con munición', () => {
     expect(a.ammo).toBe(AMMO_MAX - 1);
     a.nextShot = 0;
     match.handleInput('p0', input(2, { fire: { x: b.x, y: b.y, n: 2 } })); // hacia abajo: acierta
-    expect(b.hp).toBe(100 - FOCOS.vara.basic.dmg);
+    expect(b.hp).toBe(100 - FOCOS.gemelas.basic.dmg);
     match.stop();
   });
 
@@ -43,10 +43,10 @@ describe('Básico apuntado con munición', () => {
     b.y = a.y + 70;
     match.handleInput('p0', input(1, { fire: { x: b.x, y: b.y, n: 1 } }));
     match.handleInput('p0', input(2, { fire: { x: b.x, y: b.y, n: 2 } })); // dentro del intervalo: rechazado
-    expect(b.hp).toBe(100 - 16);
+    expect(b.hp).toBe(100 - 11);
     for (let n = 3; n <= 6; n++) { a.nextShot = 0; match.handleInput('p0', input(n, { fire: { x: b.x, y: b.y, n } })); }
     expect(a.ammo).toBeLessThan(1);
-    expect(b.hp).toBe(100 - 16 * 3); // solo 3 cargas
+    expect(b.hp).toBe(100 - 11 * 3); // solo 3 cargas
     const now = Date.now();
     for (let i = 0; i < 40; i++) match.tick(now + i * 33); // ~1.3 s: vuelve al menos una carga
     expect(a.ammo).toBeGreaterThanOrEqual(1);
@@ -67,31 +67,49 @@ describe('Básico apuntado con munición', () => {
     match.stop();
   });
 
-  it('el proyectil del Anillo viaja, acierta en línea y se puede esquivar', () => {
-    const { match, actors: [a, b] } = arena([{ focos: ['anillo', 'vara'] }, {}]);
+  it('la bala del Revólver viaja, acierta en línea y se puede esquivar', () => {
+    const { match, actors: [a, b] } = arena([{ focos: ['revolver', 'gemelas'] }, {}]);
     b.y = a.y + 4 * TILE;
     const now = Date.now();
     match.handleInput('p0', input(1, { fire: { x: b.x, y: b.y, n: 1 } }));
     expect(match.projectiles).toHaveLength(1);
     expect(b.hp).toBe(100); // aún no llega
     for (let i = 1; i < 15; i++) match.tick(now + i * 33);
-    expect(b.hp).toBe(90);
+    expect(b.hp).toBe(91);
     // Segundo disparo: el rival se hace a un lado y la bala sigue de largo.
     a.nextShot = 0;
     match.handleInput('p0', input(2, { fire: { x: b.x, y: b.y, n: 2 } }));
     b.x += 2 * TILE;
     for (let i = 15; i < 30; i++) match.tick(now + i * 33);
-    expect(b.hp).toBe(90);
+    expect(b.hp).toBe(91);
     match.stop();
   });
 
-  it('el Grimorio atraviesa: golpea a dos rivales en la misma línea', () => {
-    const { match, actors: [a, b, c] } = arena([{ focos: ['grimorio', 'vara'] }, {}, {}], [0, 1, 1]);
+  it('Lanzamiento (R de la Lanza) atraviesa: golpea a dos rivales en la misma línea', () => {
+    const { match, actors: [a, b, c] } = arena([{ focos: ['lanza', 'gemelas'] }, {}, {}], [0, 1, 1]);
     b.y = a.y + 2 * TILE; c.y = a.y + 4 * TILE;
-    match.handleInput('p0', input(1, { fire: { x: a.x, y: a.y + 400, n: 1 } }));
+    match.handleInput('p0', input(1, { cast: { slot: 'R', x: a.x, y: a.y + 400 } }));
     const now = Date.now();
     for (let i = 1; i < 20; i++) match.tick(now + i * 33);
-    expect(b.hp).toBe(89); expect(c.hp).toBe(89);
+    expect(b.hp).toBe(80); expect(c.hp).toBe(80);
+    match.stop();
+  });
+
+  it('la estocada de la Lanza golpea en línea recta, no a los lados', () => {
+    const { match, actors: [a, b, c] } = arena([{ focos: ['lanza', 'gemelas'] }, {}, {}], [0, 1, 1]);
+    b.y = a.y + 2 * TILE; c.x = a.x + 1.5 * TILE; c.y = a.y + TILE;
+    match.handleInput('p0', input(1, { fire: { x: a.x, y: a.y + 300, n: 1 } }));
+    expect(b.hp).toBe(100 - FOCOS.lanza.basic.dmg);
+    expect(c.hp).toBe(100);
+    match.stop();
+  });
+
+  it('la Siega de la Guadaña daña y atrae al rival hacia quien la lanza', () => {
+    const { match, actors: [a, b] } = arena([{ focos: ['guadana', 'gemelas'] }, {}]);
+    b.y = a.y + 2.5 * TILE;
+    match.handleInput('p0', input(1, { cast: { slot: 'R', x: a.x, y: a.y } }));
+    expect(b.hp).toBe(88);
+    expect(b.knock?.vy).toBeLessThan(0); // hacia arriba, donde está el lanzador
     match.stop();
   });
 

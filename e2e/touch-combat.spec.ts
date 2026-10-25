@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { register, uniqueName } from './helpers';
-test('Flujo de combate táctil: arrastrar el botón apunta, regresar cancela y un toque rápido auto-apunta', async ({ browser }) => {
+test('Flujo de combate táctil: Usar responde, arrastrar apunta, regresar cancela y un toque rápido auto-apunta', async ({ browser }) => {
   const mc = await browser.newContext({ viewport: { width: 844, height: 390 }, hasTouch: true, isMobile: true });
   const m = await mc.newPage(), b = await browser.newPage();
   await register(m, uniqueName('tactil')); await register(b, uniqueName('rival'));
@@ -11,6 +11,9 @@ test('Flujo de combate táctil: arrastrar el botón apunta, regresar cancela y u
   await m.click('#ready-btn'); await b.click('#ready-btn');
   await expect(m.locator('#screen-game')).toBeVisible();
   await m.waitForTimeout(1500);
+  // El botón Usar no queda tapado por la caja de los botones de habilidad.
+  const use = await m.locator('#t-interact').boundingBox();
+  expect(await m.evaluate(([x, y]) => document.elementFromPoint(x, y)?.id, [use!.x + use!.width / 2, use!.y + use!.height / 2])).toBe('t-interact');
   const atk = await m.locator('#t-attack').boundingBox();
   const cx = atk!.x + atk!.width / 2, cy = atk!.y + atk!.height / 2;
   // Arrastrar: aparece el indicador del básico.
