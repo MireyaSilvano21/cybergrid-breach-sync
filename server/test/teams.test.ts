@@ -51,13 +51,14 @@ describe('Equipos en la partida', () => {
     match.stop();
   });
 
-  it('no hay daño entre compañeros: no se puede fijar a uno y el Temblor no lo toca', () => {
+  it('no hay daño entre compañeros: ni el básico ni el Temblor lo tocan', () => {
     const { match } = teamMatch();
     const [a, b, c] = ['p0', 'p1', 'p2'].map((id) => match.actor(id)!);
     match.map.tiles.fill(0);
     b.x = a.x; b.y = a.y + 60; c.x = a.x; c.y = a.y - 60;
-    match.handleInput('p0', input(1, { target: 'p1' }));
-    expect(a.target).toBeNull();
+    // El básico (arco de la Vara) hacia el compañero no le hace nada.
+    match.handleInput('p0', input(1, { fire: { x: b.x, y: b.y, n: 1 } }));
+    expect(b.hp).toBe(100);
     match.handleInput('p0', input(2, { cast: { slot: 'E', x: a.x, y: a.y } }));
     expect(b.hp).toBe(100);
     expect(c.hp).toBeLessThan(100);

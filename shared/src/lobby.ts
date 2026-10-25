@@ -8,12 +8,12 @@ import { MAX_TEAMS, MAX_TEAM_SIZE } from './constants';
  * emparejamiento automático. Aquí van las reglas que comparten cliente y servidor.
  */
 
-/** Escuelas del GDD. Las que aún no tienen habilidades se muestran bloqueadas. */
+/** Escuelas del GDD: cada una aporta sus dos Nombres (Q y E). */
 export const SCHOOLS = [
   { id: 'tharven', name: 'Tharvén', title: 'Voces de la Piedra', role: 'Asalto', playable: true },
-  { id: 'seleth', name: 'Seléth', title: 'Los Que Olvidaron su Nombre', role: 'Sigilo', playable: false },
-  { id: 'vaerel', name: 'Vaerel', title: 'Tejedores del Vínculo', role: 'Soporte', playable: false },
-  { id: 'orrath', name: 'Orrath', title: 'Los Que Escuchan al Viento', role: 'Reconocimiento', playable: false },
+  { id: 'seleth', name: 'Seléth', title: 'Los Que Olvidaron su Nombre', role: 'Sigilo', playable: true },
+  { id: 'vaerel', name: 'Vaerel', title: 'Tejedores del Vínculo', role: 'Soporte', playable: true },
+  { id: 'orrath', name: 'Orrath', title: 'Los Que Escuchan al Viento', role: 'Reconocimiento', playable: true },
 ] as const;
 export type SchoolId = typeof SCHOOLS[number]['id'];
 const SCHOOL_IDS = SCHOOLS.map((s) => s.id) as [SchoolId, ...SchoolId[]];

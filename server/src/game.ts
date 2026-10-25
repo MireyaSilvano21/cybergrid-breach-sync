@@ -2,8 +2,9 @@ import {
   PLAYER, TICK_MS, SYNC_SECONDS, computeDamage, applyHealth, generateValidMap, moveCircle, hasLineOfSight,
   phaseAt, scalePhases, DEFAULT_PHASES, placeChests, addToInventory, itemValue, INTERACT_RANGE,
   isSolidWorld, solidAt, pushHistory, positionAt, clampRewind, type TimedPoint, createMoveQueue, enqueueMove, consumeMoves, type MoveQueue,
-  FOCOS, DEFAULT_BUILD, abilityFor, inBasicRange, clampAim, fanDirections, GCD_MS, SWAP_MS, DASH_S, DASH_MUL, SLOW_MUL, SLOW_MS, KNOCK_PX, PROJECTILE, TILE,
-  type Build, type Slot, type AbilityDef,
+  FOCOS, abilityFor, clampAim, fanDirections, inCone, blinkTarget, reloadAmmo, dashMulFor,
+  AMMO_MAX, GCD_MS, SWAP_MS, DASH_S, SLOW_MUL, TILE,
+  type Build, type Slot, type AbilityDef, type Effect, type ProjectileDef,
   type GridMap, type InputMessage, type MatchRecord, type PhaseConfig,
   type ChestKind, teamSpawns, buildFromProfile, appearanceOf, type Profile, type Appearance,
 } from '@shared/index';
@@ -23,29 +24,33 @@ interface Actor {
   input: InputMessage | null; lastSeq: number;
   /** Comandos de movimiento en espera y su acuse para la reconciliación del cliente. */
   moves: MoveQueue;
-  cooldownUntil: number; attackAt: number;
+  attackAt: number;
   syncT: number;
   kills: number; deaths: number; endedAt: number | null;
   inventory: string[];
-  /** Pulsos recibidos entre ticks: un toque rápido nunca se pierde. */
-  /** Ataque pendiente con la dirección y el instante que el atacante veía. */
-  pendingAttack: { ax: number; ay: number; viewT?: number } | null; pendingUse: boolean;
+  pendingUse: boolean; pendingSwap: boolean;
   /** Posiciones del último segundo, para retroceder el tiempo al revisar golpes. */
   history: TimedPoint[];
-  // --- Combate estilo Albion ---
-  build: Build; foco: 0 | 1;
-  target: string | null; nextBasic: number; viewT?: number;
+  // --- Combate apuntado (estilo Brawl Stars) ---
+  build: Build; foco: 0 | 1; viewT?: number;
+  /** Cargas del básico (0 a 3, con fracción mientras recarga) y cuándo puede volver a disparar. */
+  ammo: number; nextShot: number;
   /** Recarga de cada habilidad (por id) y recarga global. */
   cds: Record<string, number>; gcdUntil: number; swapReady: number;
-  slowUntil: number;
+  slowUntil: number; rootUntil: number; invisUntil: number;
+  /** Revelar: hasta cuándo y en qué radio (px) el equipo ve a los rivales a través de muros. */
+  revealUntil: number; revealR: number;
   /** Empuje recibido: velocidad que se aplica unos ticks. */
   knock: { vx: number; vy: number; until: number } | null;
-  /** Embestida en curso: dirección y a quién ya golpeó. */
-  dash: { dx: number; dy: number; until: number; hit: Set<string> } | null;
-  pendingCast: { slot: Slot; x: number; y: number; target?: string } | null; pendingSwap: boolean;
+  /** Embestida en curso: dirección, efecto y a quién ya golpeó. */
+  dash: { dx: number; dy: number; until: number; hit: Set<string>; effect: Effect } | null;
 }
 
-interface Projectile { id: number; owner: Actor; x: number; y: number; vx: number; vy: number; left: number; dmg: number }
+interface Projectile {
+  id: number; owner: Actor; kind: string; n?: number;
+  x: number; y: number; vx: number; vy: number; left: number; speed: number; radius: number;
+  effect: Effect; pierce: boolean; hit: Set<string>;
+}
 
 export interface Chest { id: string; kind: ChestKind; x: number; y: number; state: 'closed' | 'open' | 'empty'; items: string[] }
 export interface Remains { id: string; x: number; y: number; items: string[]; owner: string }
@@ -53,7 +58,8 @@ export interface Remains { id: string; x: number; y: number; items: string[]; ow
 /** Radio en el que el servidor envía a otros jugadores: un poco más que la mitad de la diagonal visible (1280×640). */
 const VIEW_RADIUS = 760;
 const PORTAL_RADIUS = 80;
-const BASE_DAMAGE = 22;
+/** A esta distancia un invisible se deja ver (como los arbustos de Brawl Stars). */
+const INVIS_NEAR = 1.5 * TILE;
 
 /** Partida autoritativa: el servidor decide posiciones, colisiones, daño e inventario. */
 export class Match {
@@ -88,11 +94,11 @@ export class Match {
       this.actors.set(conn.id, {
         conn, team, app: appearanceOf(profile, conn.id), x: sp.x + ox, y: sp.y + oy, ax: 0, ay: 1,
         hp: PLAYER.maxHp, shield: 0, alive: true, extracted: false,
-        input: null, lastSeq: 0, moves: createMoveQueue(), cooldownUntil: 0, attackAt: 0, syncT: 0,
+        input: null, lastSeq: 0, moves: createMoveQueue(), attackAt: 0, syncT: 0,
         kills: 0, deaths: 0, endedAt: null,
-        inventory: [], pendingAttack: null, pendingUse: false, history: [],
-        build: buildFromProfile(profile), foco: 0, target: null, nextBasic: 0, cds: {}, gcdUntil: 0, swapReady: 0,
-        slowUntil: 0, knock: null, dash: null, pendingCast: null, pendingSwap: false,
+        inventory: [], pendingUse: false, pendingSwap: false, history: [],
+        build: buildFromProfile(profile), foco: 0, ammo: AMMO_MAX, nextShot: 0, cds: {}, gcdUntil: 0, swapReady: 0,
+        slowUntil: 0, rootUntil: 0, invisUntil: 0, revealUntil: 0, revealR: 0, knock: null, dash: null,
       });
     });
   }
@@ -100,7 +106,7 @@ export class Match {
   start() {
     const roster = [...this.actors.values()].map((b) => ({ id: b.conn.id, name: b.conn.name, team: b.team, app: b.app }));
     for (const a of this.actors.values()) {
-      a.conn.send({ type: 'start', seed: this.seed, players: this.actors.size, you: a.conn.id, team: a.team, roster, phases: this.phases, x: a.x, y: a.y });
+      a.conn.send({ type: 'start', seed: this.seed, players: this.actors.size, you: a.conn.id, team: a.team, roster, build: a.build, phases: this.phases, x: a.x, y: a.y });
     }
     this.timer = setInterval(() => this.tick(), TICK_MS);
   }
@@ -111,12 +117,13 @@ export class Match {
     a.lastSeq = msg.seq;
     a.input = msg;
     if (msg.viewT !== undefined) a.viewT = msg.viewT;
-    // Solo se puede fijar a un rival.
-    if (msg.target !== undefined) a.target = msg.target && this.actors.get(msg.target) && this.actors.get(msg.target)!.team !== a.team ? msg.target : null;
     if (msg.swap) a.pendingSwap = true;
     if (msg.use) a.pendingUse = true;
-    // La embestida se autoriza al recibir el lanzamiento, antes de los tramos rápidos que vienen detrás.
-    if (msg.cast) this.cast(a, msg.cast, Date.now());
+    const now = Date.now();
+    // Disparos y habilidades se resuelven al llegar, antes de los tramos de movimiento que vienen detrás
+    // (así la embestida y el parpadeo coinciden con lo que predijo el cliente).
+    if (msg.fire) this.fire(a, msg.fire, now);
+    if (msg.cast) this.cast(a, msg.cast, now);
     if (a.alive && !a.extracted) enqueueMove(a.moves, { seq: msg.seq, mx: msg.mx, my: msg.my, dt: msg.dt ?? 0, sp: msg.sp ?? 1 });
   }
 
@@ -127,8 +134,6 @@ export class Match {
     const a = this.actors.get(id);
     if (a && a.alive && !a.extracted) { a.alive = false; a.endedAt = Date.now(); }
   }
-
-  private elapsed() { return (Date.now() - this.startedAt) / 1000; }
 
   private openPortals(t: number) {
     const ph = phaseAt(t, this.phases);
@@ -155,16 +160,18 @@ export class Match {
 
     for (const a of this.actors.values()) {
       if (!a.alive || a.extracted) continue;
+      // Las cargas se recargan solas al ritmo del Foco en la mano.
+      a.ammo = reloadAmmo(a.ammo, TICK_MS, FOCOS[a.build.focos[a.foco]].basic.reloadMs);
       const inp = a.input;
       if (inp) {
-        a.moves.slow = now < a.slowUntil ? SLOW_MUL : 1;
+        // Inmovilizado: no avanza (la embestida tampoco). Ralentizado: 60 %.
+        a.moves.slow = now < a.rootUntil ? 0 : now < a.slowUntil ? SLOW_MUL : 1;
         const p = consumeMoves(this.map, a, a.moves, dt);
         a.x = p.x; a.y = p.y;
         const al = Math.hypot(inp.ax, inp.ay);
         if (al > 0.1) { a.ax = inp.ax / al; a.ay = inp.ay / al; }
-        if (a.pendingSwap && now >= a.swapReady) { a.foco = a.foco === 0 ? 1 : 0; a.swapReady = now + SWAP_MS; a.nextBasic = Math.max(a.nextBasic, now + 300); }
+        if (a.pendingSwap && now >= a.swapReady) { a.foco = a.foco === 0 ? 1 : 0; a.swapReady = now + SWAP_MS; a.nextShot = Math.max(a.nextShot, now + 250); }
         if (a.dash) this.dashHits(a, now);
-        this.basicAttack(a, now);
         if (a.pendingUse) this.use(a);
         // Extracción: mantener interactuar junto a un portal abierto.
         const portal = portals.find((pt) => pt.open && Math.hypot(pt.x - a.x, pt.y - a.y) < PORTAL_RADIUS);
@@ -177,7 +184,7 @@ export class Match {
           }
         } else a.syncT = 0;
       }
-      a.pendingAttack = null; a.pendingUse = false; a.pendingSwap = false;
+      a.pendingUse = false; a.pendingSwap = false;
       if (a.knock) {
         const k = moveCircle(this.map, a, a.knock.vx * dt, a.knock.vy * dt, PLAYER.radius);
         a.x = k.x; a.y = k.y;
@@ -188,7 +195,7 @@ export class Match {
       }
     }
 
-    this.stepProjectiles(dt);
+    this.stepProjectiles(dt, now);
     for (const a of this.actors.values()) if (a.alive && !a.extracted) pushHistory(a.history, { t: now, x: a.x, y: a.y });
 
     if (ph.ended || [...this.actors.values()].every((a) => !a.alive || a.extracted)) return this.finish(now);
@@ -197,19 +204,36 @@ export class Match {
 
   /** Rivales vivos: los compañeros nunca reciben daño de habilidades, básicos ni proyectiles. */
   private enemies(a: Actor) { return [...this.actors.values()].filter((b) => b.team !== a.team && b.alive && !b.extracted); }
+  private allies(a: Actor) { return [...this.actors.values()].filter((b) => b.team === a.team && b.alive && !b.extracted); }
 
   /** Aviso a los compañeros de un jugador. */
   private tellTeam(a: Actor, message: string) {
     for (const b of this.actors.values()) if (b !== a && b.team === a.team) b.conn.send({ type: 'notice', message });
   }
 
-  /** Aplica daño de una habilidad o básico y avisa al atacante para el número flotante. */
-  private strike(a: Actor, b: Actor, base: number, at: { x: number; y: number }, now: number, rewindMs = 0) {
+  /** Aplica daño y avisa al atacante para el número flotante. */
+  private strike(a: Actor, b: Actor, base: number, at: { x: number; y: number }, rewindMs = 0) {
     if (a.team === b.team) return;
     const r = computeDamage({ base, rarity: 'comun', targetShield: b.shield });
     b.shield = r.remainingShield;
     this.hurt(b, r.toHealth, a);
     a.conn.send({ type: 'hit', target: b.conn.id, dmg: r.total, x: Math.round(at.x), y: Math.round(at.y), rewindMs });
+  }
+
+  /** Efectos de un golpe o un área: daño y estados a rivales; curación a aliados. */
+  private applyEffect(a: Actor, b: Actor, e: Effect, origin: { x: number; y: number }, now: number, at: { x: number; y: number } = b, rewindMs = 0) {
+    if (b.team === a.team) {
+      if (e.heal && b.alive) {
+        b.hp = Math.min(PLAYER.maxHp, b.hp + e.heal);
+        for (const c of new Set([a, b])) c.conn.send({ type: 'heal', target: b.conn.id, amt: e.heal, x: Math.round(b.x), y: Math.round(b.y) });
+      }
+      return;
+    }
+    if (e.dmg) this.strike(a, b, e.dmg, at, rewindMs);
+    if (!b.alive) return;
+    if (e.slowMs) b.slowUntil = Math.max(b.slowUntil, now + e.slowMs);
+    if (e.rootMs) b.rootUntil = Math.max(b.rootUntil, now + e.rootMs);
+    if (e.knock) this.push(b, b.x - origin.x, b.y - origin.y, e.knock * TILE, now);
   }
 
   private push(b: Actor, dx: number, dy: number, dist: number, now: number) {
@@ -218,88 +242,116 @@ export class Match {
   }
 
   private fx(kind: string, x: number, y: number, extra: Record<string, unknown> = {}) {
-    for (const o of this.actors.values()) if (Math.hypot(o.x - x, o.y - y) < VIEW_RADIUS + 200) o.conn.send({ type: 'fx', kind, x: Math.round(x), y: Math.round(y), ...extra });
+    for (const o of this.actors.values()) if (Math.hypot(o.x - x, o.y - y) < VIEW_RADIUS + 300) o.conn.send({ type: 'fx', kind, x: Math.round(x), y: Math.round(y), ...extra });
+  }
+
+  private spawnProjectiles(a: Actor, dirX: number, dirY: number, def: ProjectileDef, rangeTiles: number, effect: Effect, kind: string, n?: number) {
+    for (const [dx, dy] of fanDirections(dirX, dirY, def.count ?? 1, ((def.spreadDeg ?? 0) * Math.PI) / 180)) {
+      this.projectiles.push({
+        id: this.nextProjectile++, owner: a, kind, n,
+        x: a.x + dx * 20, y: a.y - 22 + dy * 20, vx: dx * def.speed, vy: dy * def.speed, speed: def.speed,
+        left: rangeTiles * TILE, radius: def.radius, effect, pierce: !!def.pierce, hit: new Set(),
+      });
+    }
   }
 
   /**
-   * Ataque básico estilo Albion: automático sobre el objetivo fijado. Usa compensación de lag:
-   * el alcance se revisa en la posición que el atacante veía (máximo 250 ms atrás).
+   * Básico apuntado: gasta una carga y sale hacia el punto. Los arcos cuerpo a cuerpo se revisan
+   * con compensación de lag (posiciones que el atacante veía, máximo 250 ms atrás); los proyectiles
+   * viajan y se pueden esquivar.
    */
-  private basicAttack(a: Actor, now: number) {
-    if (!a.target) return;
-    const b = this.actors.get(a.target);
-    if (!b || !b.alive || b.extracted || b.team === a.team) { a.target = null; return; }
-    if (now < a.nextBasic || a.dash) return;
-    const foco = FOCOS[a.build.focos[a.foco]];
+  private fire(a: Actor, f: { x: number; y: number; n: number }, now: number) {
+    if (!a.alive || a.extracted || now < a.nextShot || a.ammo < 1) return;
+    const foco = FOCOS[a.build.focos[a.foco]], b = foco.basic;
+    const aim = clampAim(a, f, b.shape.range);
+    a.ammo -= 1; a.nextShot = now + b.intervalMs; a.attackAt = now; a.invisUntil = 0;
+    a.ax = aim.dirX; a.ay = aim.dirY;
+    const effect: Effect = { dmg: b.dmg, ...(b.effect ?? {}) };
+    if (b.delivery === 'proyectil') { this.spawnProjectiles(a, aim.dirX, aim.dirY, b.projectile!, b.shape.range, effect, foco.id, f.n); return; }
     const at = clampRewind(now, a.viewT);
-    const seen = positionAt(b.history, at) ?? b;
-    const d = Math.hypot(seen.x - a.x, seen.y - a.y);
-    if (!inBasicRange(foco, d, PLAYER.radius) || !hasLineOfSight(this.map, a, seen)) return;
-    a.ax = (seen.x - a.x) / (d || 1); a.ay = (seen.y - a.y) / (d || 1);
-    a.attackAt = now; a.nextBasic = now + 1000 / foco.basic.rate;
-    this.strike(a, b, foco.basic.dmg, seen, now, now - at);
+    for (const t of this.enemies(a)) {
+      const seen = positionAt(t.history, at) ?? t;
+      if (!inCone(a, aim.dirX, aim.dirY, seen, b.shape.range, b.shape.angle ?? 90) || !hasLineOfSight(this.map, a, seen)) continue;
+      this.applyEffect(a, t, effect, a, now, seen, now - at);
+    }
+    this.fx('arco', a.x, a.y, { dx: aim.dirX, dy: aim.dirY, r: b.shape.range * TILE, ang: b.shape.angle, rgb: foco.rgb, by: a.conn.id });
   }
 
   /** Lanza una habilidad: el servidor revisa recarga, recarga global y estado, y aplica el efecto. */
-  private cast(a: Actor, c: { slot: Slot; x: number; y: number; target?: string }, now: number) {
+  private cast(a: Actor, c: { slot: Slot; x: number; y: number; n?: number }, now: number) {
     if (!a.alive || a.extracted || now < a.gcdUntil) return;
     const ab: AbilityDef = abilityFor(a.build, a.foco, c.slot);
     if (now < (a.cds[ab.id] ?? 0)) return;
     a.cds[ab.id] = now + ab.cd * 1000; a.gcdUntil = now + GCD_MS;
-    const aim = clampAim(a, c, ab.range || 1);
-    a.ax = aim.dirX; a.ay = aim.dirY;
-    switch (ab.id) {
-      case 'llamar_piedra':
-        // Se autorizan 0.25 s de velocidad de embestida; el cliente la predice con sus propios tramos.
-        a.moves.dashTime = DASH_S; a.moves.dashMul = DASH_MUL;
-        a.dash = { dx: aim.dirX, dy: aim.dirY, until: now + DASH_S * 1000 + 250, hit: new Set() };
-        this.fx('embestida', a.x, a.y, { dx: aim.dirX, dy: aim.dirY, by: a.conn.id });
-        break;
-      case 'temblor': case 'barrido': {
-        const r = (ab.radius ?? 2) * TILE;
-        for (const b of this.enemies(a)) {
-          const d = Math.hypot(b.x - a.x, b.y - a.y);
-          if (d > r + PLAYER.radius || !hasLineOfSight(this.map, a, b)) continue;
-          this.strike(a, b, ab.dmg, b, now);
-          if (ab.id === 'temblor') b.slowUntil = now + SLOW_MS;
-          else this.push(b, b.x - a.x, b.y - a.y, KNOCK_PX, now);
-        }
-        this.fx(ab.id, a.x, a.y, { r, by: a.conn.id });
-        break;
+    const s = ab.shape, aim = clampAim(a, c, s.range || 1);
+    if (s.type !== 'propio') { a.ax = aim.dirX; a.ay = aim.dirY; }
+    if (!ab.effect.invisMs) a.invisUntil = 0; // atacar o lanzar descubre al invisible
+    const base = { by: a.conn.id, rgb: ab.rgb };
+    switch (ab.delivery) {
+      case 'embestida':
+        // Se autoriza la velocidad de embestida; el cliente la predice con sus propios tramos.
+        a.moves.dashTime = DASH_S; a.moves.dashMul = dashMulFor(s.range);
+        a.dash = { dx: aim.dirX, dy: aim.dirY, until: now + DASH_S * 1000 + 250, hit: new Set(), effect: ab.effect };
+        this.fx(ab.id, a.x, a.y, { ...base, dx: aim.dirX, dy: aim.dirY, r: s.range * TILE });
+        return;
+      case 'parpadeo': {
+        const from = { x: a.x, y: a.y }, to = blinkTarget(this.map, a, c, s.range);
+        a.x = to.x; a.y = to.y; a.history = [];
+        this.fx(ab.id, from.x, from.y, { ...base, x2: Math.round(to.x), y2: Math.round(to.y) });
+        return;
       }
-      case 'andanada':
-        for (const [dx, dy] of fanDirections(aim.dirX, aim.dirY)) {
-          this.projectiles.push({ id: this.nextProjectile++, owner: a, x: a.x + dx * 24, y: a.y - 20 + dy * 24, vx: dx * PROJECTILE.speed, vy: dy * PROJECTILE.speed, left: ab.range * TILE, dmg: ab.dmg });
+      case 'proyectil':
+        this.spawnProjectiles(a, aim.dirX, aim.dirY, ab.projectile!, s.range, ab.effect, ab.id, c.n);
+        this.fx(ab.id, a.x, a.y, { ...base, dx: aim.dirX, dy: aim.dirY });
+        return;
+      case 'instante': {
+        const e = ab.effect;
+        // Efectos sobre uno mismo: invisibilidad y revelar al equipo.
+        if (e.invisMs) a.invisUntil = now + e.invisMs;
+        if (e.revealMs) { a.revealUntil = now + e.revealMs; a.revealR = (e.revealR ?? 10) * TILE; }
+        const center = s.type === 'zona' ? { x: aim.x, y: aim.y } : { x: a.x, y: a.y };
+        const r = (s.radius ?? 0) * TILE;
+        if (!e.invisMs && !e.revealMs) {
+          const pool = ab.targets === 'aliados' ? this.allies(a) : this.enemies(a);
+          for (const t of pool) {
+            const inside = s.type === 'cono'
+              ? inCone(a, aim.dirX, aim.dirY, t, s.range, s.angle ?? 90) && hasLineOfSight(this.map, a, t)
+              : Math.hypot(t.x - center.x, t.y - center.y) <= r + PLAYER.radius && (s.type === 'zona' || hasLineOfSight(this.map, a, t));
+            if (inside) this.applyEffect(a, t, e, center, now);
+          }
         }
-        this.fx('andanada', a.x, a.y, { dx: aim.dirX, dy: aim.dirY, by: a.conn.id });
-        break;
+        this.fx(ab.id, center.x, center.y, { ...base, r: s.type === 'cono' ? s.range * TILE : r, dx: aim.dirX, dy: aim.dirY, ang: s.angle });
+        return;
+      }
     }
   }
 
-  /** Durante la embestida, quien queda en el camino recibe daño y es empujado (una vez). */
+  /** Durante la embestida, quien queda en el camino recibe el efecto y es empujado (una vez). */
   private dashHits(a: Actor, now: number) {
     const dash = a.dash!;
     for (const b of this.enemies(a)) {
       if (dash.hit.has(b.conn.id) || Math.hypot(b.x - a.x, b.y - a.y) > PLAYER.radius * 2 + 16) continue;
       dash.hit.add(b.conn.id);
-      this.strike(a, b, abilityFor(a.build, a.foco, 'Q').dmg, b, now);
-      this.push(b, dash.dx, dash.dy, KNOCK_PX, now);
+      this.applyEffect(a, b, { ...dash.effect, knock: undefined }, a, now);
+      if (dash.effect.knock && b.alive) this.push(b, dash.dx, dash.dy, dash.effect.knock * TILE, now);
     }
     if (now >= dash.until) a.dash = null;
   }
 
-  /** Proyectiles: avanzan en pasos cortos, chocan con lo opaco (no con abismos) y con el primer enemigo. */
-  private stepProjectiles(dt: number) {
-    const now = Date.now();
+  /** Proyectiles: avanzan en pasos cortos, chocan con lo opaco (no con abismos) y con rivales. */
+  private stepProjectiles(dt: number, now: number) {
     for (let i = this.projectiles.length - 1; i >= 0; i--) {
       const p = this.projectiles[i];
       const steps = 3;
       let dead = false;
       for (let k = 0; k < steps && !dead; k++) {
-        p.x += (p.vx * dt) / steps; p.y += (p.vy * dt) / steps; p.left -= (PROJECTILE.speed * dt) / steps;
+        p.x += (p.vx * dt) / steps; p.y += (p.vy * dt) / steps; p.left -= (p.speed * dt) / steps;
         if (p.left <= 0 || solidAt(this.map, p.x, p.y + 20, true)) { dead = true; break; }
         for (const b of this.enemies(p.owner)) {
-          if (Math.hypot(b.x - p.x, b.y - 22 - p.y) < PLAYER.radius + PROJECTILE.radius) { this.strike(p.owner, b, p.dmg, b, now); dead = true; break; }
+          if (p.hit.has(b.conn.id) || Math.hypot(b.x - p.x, b.y - 22 - p.y) >= PLAYER.radius + p.radius) continue;
+          p.hit.add(b.conn.id);
+          this.applyEffect(p.owner, b, p.effect, { x: p.x - p.vx, y: p.y - p.vy }, now);
+          if (!p.pierce) { dead = true; break; }
         }
       }
       if (dead) this.projectiles.splice(i, 1);
@@ -350,19 +402,36 @@ export class Match {
     b.inventory = [];
   }
 
+  /** ¿Algún compañero del equipo `team` está revelando a este rival? */
+  private revealedTo(team: number, b: Actor, now: number) {
+    for (const t of this.actors.values()) if (t.team === team && t.alive && now < t.revealUntil && Math.hypot(t.x - b.x, t.y - b.y) <= t.revealR) return true;
+    return false;
+  }
+
   private broadcast(t: number, phase: string, portals: { x: number; y: number; open: boolean }[], collapseR: number) {
-    const all = [...this.actors.values()];
+    const all = [...this.actors.values()], now = Date.now();
     for (const a of all) {
-      // Los compañeros se envían siempre (para el HUD y las flechas); los rivales, solo si se ven.
+      // Compañeros: siempre. Rivales: si se ven (o los revela el equipo); los invisibles solo de cerca.
       const others = all
         .filter((b) => b !== a && b.alive && !b.extracted)
-        .filter((b) => b.team === a.team || (Math.hypot(b.x - a.x, b.y - a.y) < VIEW_RADIUS && hasLineOfSight(this.map, a, b)))
-        .map((b) => ({ id: b.conn.id, name: b.conn.name, team: b.team, x: Math.round(b.x), y: Math.round(b.y), hp: b.hp, ax: b.ax, ay: b.ay, atk: Date.now() - b.attackAt < 200, tg: b.target, foco: b.build.focos[b.foco], slow: Date.now() < b.slowUntil }));
+        .map((b) => {
+          if (b.team === a.team) return { b, rev: false };
+          const d = Math.hypot(b.x - a.x, b.y - a.y), rev = this.revealedTo(a.team, b, now);
+          const seen = d < VIEW_RADIUS && hasLineOfSight(this.map, a, b);
+          if (!seen && !rev) return null;
+          if (now < b.invisUntil && d > INVIS_NEAR && !rev) return null;
+          return { b, rev: rev && !seen };
+        })
+        .filter((x): x is { b: Actor; rev: boolean } => !!x)
+        .map(({ b, rev }) => ({
+          id: b.conn.id, name: b.conn.name, team: b.team, x: Math.round(b.x), y: Math.round(b.y), hp: b.hp, ax: b.ax, ay: b.ay,
+          atk: now - b.attackAt < 200, foco: b.build.focos[b.foco], slow: now < b.slowUntil, root: now < b.rootUntil,
+          invis: now < b.invisUntil, rev,
+        }));
       const allies = all.filter((b) => b !== a && b.team === a.team).map((b) => ({ id: b.conn.id, name: b.conn.name, hp: Math.ceil(b.hp), alive: b.alive, extracted: b.extracted }));
-      const now = Date.now();
       const cd = (slot: Slot) => Math.max(0, Math.round((a.cds[abilityFor(a.build, a.foco, slot).id] ?? 0) - now));
       a.conn.send({
-        type: 'snap', t: Date.now(), time: Math.round(t * 10) / 10, phase,
+        type: 'snap', t: now, time: Math.round(t * 10) / 10, phase,
         timeLeft: Math.max(0, Math.round(this.phases.fin - t)),
         portals, collapseR: Number.isFinite(collapseR) ? Math.round(collapseR) : null,
         chests: this.chests.filter((c) => Math.hypot(c.x - a.x, c.y - a.y) < VIEW_RADIUS).map((c) => ({ id: c.id, k: c.kind, x: c.x, y: c.y, s: c.state })),
@@ -370,10 +439,13 @@ export class Match {
         you: {
           x: a.x, y: a.y, hp: a.hp, team: a.team, alive: a.alive, extracted: a.extracted, sync: a.syncT, syncNeed: SYNC_SECONDS[1], seq: a.lastSeq, ack: a.moves.ack, ackRem: a.moves.ackRem,
           kills: a.kills, atk: now - a.attackAt < 200, attackAt: a.attackAt, inv: a.inventory,
-          target: a.target, foco: a.foco, build: a.build, slow: now < a.slowUntil ? SLOW_MUL : 1,
+          foco: a.foco, build: a.build, ammo: Math.round(a.ammo * 100) / 100, nextShot: Math.max(0, a.nextShot - now),
+          slow: now < a.rootUntil ? 0 : now < a.slowUntil ? SLOW_MUL : 1, root: now < a.rootUntil, invis: now < a.invisUntil, reveal: now < a.revealUntil,
           cds: { Q: cd('Q'), E: cd('E'), R: cd('R') }, gcd: Math.max(0, a.gcdUntil - now), swap: Math.max(0, a.swapReady - now),
         },
-        projectiles: this.projectiles.filter((p) => Math.hypot(p.x - a.x, p.y - a.y) < VIEW_RADIUS + 200).map((p) => ({ id: p.id, x: Math.round(p.x), y: Math.round(p.y), vx: Math.round(p.vx), vy: Math.round(p.vy) })),
+        projectiles: this.projectiles.filter((p) => Math.hypot(p.x - a.x, p.y - a.y) < VIEW_RADIUS + 300).map((p) => ({
+          id: p.id, x: Math.round(p.x), y: Math.round(p.y), vx: Math.round(p.vx), vy: Math.round(p.vy), k: p.kind, r: p.radius, o: p.owner.conn.id, n: p.n,
+        })),
         others, allies,
       });
     }

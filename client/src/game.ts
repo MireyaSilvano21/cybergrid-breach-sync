@@ -1,17 +1,20 @@
 import {
   TILE, PLAYER, INTERP_DELAY_MS, TICK_MS, WALL, THIN, COVER, SEAL_VAULT, SEAL_HEART, DIAG_TL, DIAG_TR, DIAG_BL, DIAG_BR, GATE_DIR, isDiag, isGate, ITEMS, createJitter, updateJitter, adaptiveDelay, viewScale, VISION_RADIUS, INTERACT_RANGE, generateValidMap, sampleBuffer, stepMove, replayMoves, pendingAfterAck, type MoveCmd, createRng, itemValue,
-  FOCOS, DEFAULT_BUILD, abilityFor, inBasicRange, GCD_MS, SWAP_MS, DASH_S, DASH_MUL, type Build, type Slot,
+  FOCOS, NOMBRES, DEFAULT_BUILD, abilityFor, clampAim, fanDirections, blinkTarget, dashMulFor, reloadAmmo, solidAt, AMMO_MAX, GCD_MS, SWAP_MS, DASH_S, DASH_MUL,
+  type Build, type Slot, type Shape, type ProjectileDef,
   animate, appearanceFor, BODIES, type Appearance, type AnimInput, type ActionKind, type View,
   TEAMS,
   type GridMap, type TimedPosition,
 } from '@shared/index';
 import type { Net } from './net';
-import { Input, type CastRequest } from './input';
+import { Input, type AimSlot, type Drag } from './input';
 import { Sprites, isDeepWall, drawDiagWall, drawThinCracks, drawCover, drawBars, drawBrazier, buildFloorChunk, buildWall, wallKey, buildDecor, drawGrass, glowP, CHUNK, WALL_RISE, INK, type FloorChunk, type Decor } from './art';
 import { drawCharacter } from './rig';
 
-interface Remote { id: string; name: string; buf: TimedPosition[]; hp: number; ax: number; ay: number; atk: boolean; seen: number; lx: number; ly: number; walk: number; flash: number; tg?: string | null; foco?: string; slow?: boolean; team?: number; swingAt: number; shotAt: number; castAt: number; mv: number; drawT: number }
-interface Fx { kind: string; x: number; y: number; dx?: number; dy?: number; r?: number; x2?: number; y2?: number; t0: number; dur: number }
+interface Remote { id: string; name: string; buf: TimedPosition[]; hp: number; ax: number; ay: number; atk: boolean; seen: number; lx: number; ly: number; walk: number; flash: number; foco?: string; slow?: boolean; root?: boolean; invis?: boolean; rev?: boolean; team?: number; swingAt: number; shotAt: number; castAt: number; mv: number; drawT: number }
+interface Fx { kind: string; x: number; y: number; dx?: number; dy?: number; r?: number; x2?: number; y2?: number; ang?: number; rgb?: string; t0: number; dur: number }
+/** Disparo propio predicho: se dibuja desde que sale, sin esperar al servidor. */
+interface MyShot { n: number; kind: string; x0: number; y0: number; dx: number; dy: number; speed: number; radius: number; range: number; t0: number; seen: boolean; dead: boolean; pierce: boolean }
 type ChestKind = 'forja' | 'sarcofago' | 'ornamentado' | 'relicario';
 interface Light { x: number; y: number; r: number; c: string; fl?: number; a?: number }
 
@@ -31,7 +34,7 @@ const teamColor = (t: number | undefined, fallback: string) => (t != null && TEA
 const ACT_MS: Record<ActionKind, number> = { melee: 420, shoot: 360, cast: 600, hit: 340 };
 const DIE_MS = 900;
 /** Estado de animación de un personaje en este cuadro. */
-interface ActorDraw { x: number; y: number; ax: number; ay: number; id: string; me: boolean; color: string; walk: number; move: number; foco?: string; swingAt: number; shotAt: number; castAt: number; hitAt: number; dieAt?: number }
+interface ActorDraw { x: number; y: number; ax: number; ay: number; id: string; me: boolean; color: string; invis?: boolean; walk: number; move: number; foco?: string; swingAt: number; shotAt: number; castAt: number; hitAt: number; dieAt?: number }
 const DIAGS = { TL: DIAG_TL, TR: DIAG_TR, BL: DIAG_BL, BR: DIAG_BR };
 /** Arte de escenario de Astra: tamaño en el mundo (lienzo cuadrado, base al 94 %). */
 const PORTAL_SIZE = 300, MONO_SIZE = 200;
@@ -94,9 +97,12 @@ export class Game {
   private allyRows = new Map<string, HTMLElement>();
   private build: Build = DEFAULT_BUILD;
   private foco: 0 | 1 = 0;
-  private target: string | null = null;
-  private targetSent: string | null = null;
-  private targetSetAt = 0;
+  /** Munición predicha (0 a 3), próximo disparo permitido y número de disparo (para casar la predicción). */
+  private ammo = AMMO_MAX; private nextShotAt = 0; private lastFireAt = -1e9; private ammoDeny = -1e9; private shotN = 0;
+  private pendingFire: { x: number; y: number; n: number } | null = null;
+  private myShots: MyShot[] = [];
+  private dashMul = DASH_MUL;
+  private rooted = false; private invis = false; private revealing = false;
   /** Recargas predichas (hora local en ms) por habilidad, recarga global y cambio de Foco. */
   private cdById: Record<string, number> = {};
   private castAt: Record<string, number> = {};
@@ -104,13 +110,13 @@ export class Game {
   private slowMul = 1;
   /** Embestida predicha: segundos que quedan y dirección. */
   private dashLeft = 0; private dashDir = { x: 0, y: 0 };
-  private pendingCast: { slot: Slot; x: number; y: number; target?: string } | null = null;
+  private pendingCast: { slot: Slot; x: number; y: number; n: number } | null = null;
   private pendingSwap = false;
   private lastAttackAt = 0;
-  private projectiles = new Map<number, { x: number; y: number; vx: number; vy: number; t: number }>();
+  private projectiles = new Map<number, { x: number; y: number; vx: number; vy: number; t: number; k?: string; r?: number }>();
   private fxs: Fx[] = [];
   private abEls: HTMLElement[] = [];
-  private floaters: { x: number; y: number; text: string; t0: number; id?: string }[] = [];
+  private floaters: { x: number; y: number; text: string; t0: number; id?: string; heal?: boolean }[] = [];
   private portals: { x: number; y: number; open: boolean }[] = [];
   private chests: { id: string; k?: ChestKind; x: number; y: number; s: 'closed' | 'open' | 'empty' }[] = [];
   private remains: { id: string; x: number; y: number; owner: string }[] = [];
@@ -150,6 +156,8 @@ export class Game {
     this.offs.push(net.on('looted', (m) => this.toast(`Obtuviste: ${names(m.items)}${m.left ? ' · no cupo todo' : ''}`)));
     this.offs.push(net.on('notice', (m) => this.toast(m.message)));
     this.offs.push(net.on('extracted', (m) => this.toast(`Escapaste con ${m.value} ◆`)));
+    // Curaciones: número verde sobre quien se cura.
+    this.offs.push(net.on('heal', (m) => { this.floaters.push({ x: m.x, y: m.y, text: `+${m.amt}`, t0: performance.now(), heal: true }); }));
     this.offs.push(net.on('hit', (m) => {
       const now = performance.now();
       this.floaters.push({ x: m.x, y: m.y, text: `-${m.dmg}`, t0: now, id: m.target });
@@ -165,9 +173,9 @@ export class Game {
     // Efectos de habilidades de otros jugadores (las propias ya se dibujaron al lanzarlas).
     this.offs.push(net.on('fx', (m) => {
       if (m.by === this.myId) return;
-      this.addFx(m.kind, m.x, m.y, { dx: m.dx, dy: m.dy, r: m.r });
+      this.addFx(m.kind, m.x, m.y, { dx: m.dx, dy: m.dy, r: m.r, ang: m.ang, rgb: m.rgb, x2: m.x2, y2: m.y2 });
       const r = m.by ? this.remotes.get(m.by) : undefined;
-      if (r && m.kind !== 'embestida') { if (m.kind === 'barrido') r.swingAt = performance.now(); else r.castAt = performance.now(); }
+      if (r && m.kind !== 'arco' && m.kind !== 'embestida') { if (m.kind === 'barrido' || m.kind === 'eco') r.swingAt = performance.now(); else r.castAt = performance.now(); }
     }));
     this.offs.push(net.on('latency', (m) => { this.el.ping.textContent = `${Math.round(m.ms)} ms`; }));
     this.resize();
@@ -233,12 +241,12 @@ export class Game {
     const msg: Record<string, unknown> = {
       type: 'input', seq, mx: c.mx, my: c.my, dt, sp: c.sp, ax: this.input.aimX, ay: this.input.aimY, attack: false,
       interact: this.input.interact, use, swap: this.pendingSwap,
-      // Hora del servidor que se está dibujando: el básico automático se revisa contra lo que veías.
+      // Hora del servidor que se está dibujando: los golpes en arco se revisan contra lo que veías.
       viewT: this.serverTimeAt(performance.now() - this.interpDelay),
     };
-    if (this.target !== this.targetSent) { msg.target = this.target; this.targetSent = this.target; }
+    if (this.pendingFire) msg.fire = this.pendingFire;
     if (this.pendingCast) msg.cast = this.pendingCast;
-    this.pendingCast = null; this.pendingSwap = false;
+    this.pendingFire = null; this.pendingCast = null; this.pendingSwap = false;
     this.net.send(msg);
   }
 
@@ -292,7 +300,7 @@ export class Game {
       if (!r) { r = { id: o.id, name: o.name, buf: [], hp: o.hp, ax: o.ax, ay: o.ay, atk: o.atk, seen: now, lx: o.x, ly: o.y, walk: 0, flash: -1e9, swingAt: -1e9, shotAt: -1e9, castAt: -1e9, mv: 0, drawT: now }; this.remotes.set(o.id, r); }
       r.buf.push({ x: o.x, y: o.y, t: now }); if (r.buf.length > 20) r.buf.shift();
       if (o.atk && !r.atk) this.remoteAttack(r, o);
-      Object.assign(r, { hp: o.hp, ax: o.ax, ay: o.ay, atk: o.atk, seen: now, tg: o.tg, foco: o.foco, slow: o.slow, team: o.team });
+      Object.assign(r, { hp: o.hp, ax: o.ax, ay: o.ay, atk: o.atk, seen: now, foco: o.foco, slow: o.slow, root: o.root, invis: o.invis, rev: o.rev, team: o.team });
     }
     for (const [id, r] of this.remotes) if (now - r.seen > 500) this.remotes.delete(id);
     this.syncCombat(m, now);
@@ -321,23 +329,25 @@ export class Game {
   }
 
   private update(dt: number, t: number) {
-    // En táctil se apunta hacia el objetivo fijado (si hay).
-    const tp = this.target ? this.remotePos(this.target) : null;
-    const auto = this.input.touch && tp ? (() => { const d = Math.hypot(tp.x - this.me.x, tp.y - this.me.y) || 1; return { x: (tp.x - this.me.x) / d, y: (tp.y - this.me.y) / d }; })() : null;
-    this.input.update(this.screenOf(this.me.x, this.me.y), auto);
+    this.input.update(this.screenOf(this.me.x, this.me.y));
     const active = this.me.alive && !this.me.extracted;
+    const moving0 = Math.hypot(this.input.mx, this.input.my) > 0.1;
     this.handleCombatInput(active);
     // Dirección cuantizada a centésimas: cliente y servidor calculan exactamente lo mismo.
     const q = (v: number) => Math.round(v * 100) / 100;
-    let mx = active ? q(this.input.mx) : 0, my = active ? q(this.input.my) : 0, sp = this.slowMul, mdt = dt;
+    // Inmovilizado: no se mueve (el servidor tampoco lo permitiría).
+    let mx = active && !this.rooted ? q(this.input.mx) : 0, my = active && !this.rooted ? q(this.input.my) : 0, sp = this.slowMul > 0 ? this.slowMul : 1, mdt = dt;
     // Embestida predicha: el mismo tiempo exacto que autoriza el servidor, a su velocidad.
-    if (this.dashLeft > 0 && active) { mx = q(this.dashDir.x); my = q(this.dashDir.y); sp = DASH_MUL; mdt = Math.min(dt, this.dashLeft); this.dashLeft -= mdt; }
+    if (this.dashLeft > 0 && active) { mx = q(this.dashDir.x); my = q(this.dashDir.y); sp = this.dashMul; mdt = Math.min(dt, this.dashLeft); this.dashLeft -= mdt; }
     if (active) this.pred = stepMove(this.map, this.pred, mx, my, mdt, sp);
     // La corrección del servidor se reparte en unos cuadros en lugar de aplicarse de golpe.
     const ek = Math.min(1, dt * 10);
     this.err.x -= this.err.x * ek; this.err.y -= this.err.y * ek;
     this.me.x = this.pred.x - this.err.x; this.me.y = this.pred.y - this.err.y;
-    this.me.ax = this.input.aimX; this.me.ay = this.input.aimY;
+    // Mira hacia el cursor (PC), hacia donde arrastra o hacia donde camina (táctil).
+    if (!this.input.touch || this.input.hold || moving0) { this.me.ax = this.input.aimX; this.me.ay = this.input.aimY; }
+    // Las cargas se recargan solas al ritmo del Foco en la mano.
+    this.ammo = reloadAmmo(this.ammo, dt * 1000, FOCOS[this.build.focos[this.foco]].basic.reloadMs);
     const moving = Math.hypot(this.input.mx, this.input.my) > 0.1;
     this.moveAmt += ((moving && active ? 1 : 0) - this.moveAmt) * Math.min(1, dt * 10);
     this.walk += dt * 9 * this.moveAmt;
@@ -352,7 +362,7 @@ export class Game {
     if (!this.out) this.out = { mx, my, dt: 0, sp };
     if (active) this.out.dt += mdt;
     const idle = mx === 0 && my === 0;
-    const urgent = use || this.pendingCast || this.pendingSwap || this.target !== this.targetSent;
+    const urgent = use || this.pendingCast || this.pendingFire || this.pendingSwap;
     if (urgent || t - this.lastSend >= (idle ? 50 : 15) || this.out.dt >= 0.1) this.sendInput(t, use);
     this.updateAbilityHud();
     this.cam.x += (this.me.x - this.cam.x) * Math.min(1, dt * 6);
@@ -365,6 +375,10 @@ export class Game {
     st.dataset.chestX = nc ? String(Math.round(nc.x)) : ''; st.dataset.chestY = nc ? String(Math.round(nc.y)) : '';
     st.dataset.chestState = nc?.s ?? '';
     st.dataset.interp = String(Math.round(this.interpDelay));
+    // Rival más cercano en pantalla y cargas: los usan las pruebas E2E para apuntar.
+    const ne = this.nearestEnemy(Infinity), ns = ne ? this.screenOf(ne.x, ne.y - 20) : null;
+    st.dataset.enemySx = ns ? String(Math.round(ns.x)) : ''; st.dataset.enemySy = ns ? String(Math.round(ns.y)) : '';
+    st.dataset.ammo = this.ammo.toFixed(2);
     this.el.ping.title = `Búfer de suavizado: ${Math.round(this.interpDelay)} ms`;
   }
 
@@ -467,10 +481,10 @@ export class Game {
     }
     for (const mo of map.monoliths) if (mo.x > v.x0 - 100 && mo.x < v.x1 + 100 && mo.y > v.y0 && mo.y < v.y1 + 200) list.push({ y: mo.y + 40, draw: () => { this.blob(mo.x, mo.y + 40, 48); this.drawScene('monolito_dormido', mo.x, mo.y + 40, MONO_SIZE); } });
     for (const p of this.portals) if (p.x > v.x0 - 160 && p.x < v.x1 + 160 && p.y > v.y0 && p.y < v.y1 + 320) list.push({ y: p.y - 6, draw: () => this.drawScene(`portal_${this.portalState(p)}`, p.x, p.y - 6, PORTAL_SIZE) });
-    for (const { r, x, y } of remotesNow) list.push({ y, draw: () => this.drawActor({ x, y, ax: r.ax, ay: r.ay, id: r.id, me: false, color: teamColor(r.team, TEAM_OTHER), walk: r.walk, move: r.mv, foco: r.foco, swingAt: r.swingAt, shotAt: r.shotAt, castAt: r.castAt, hitAt: r.flash }, now) });
+    for (const { r, x, y } of remotesNow) list.push({ y, draw: () => this.drawActor({ x, y, ax: r.ax, ay: r.ay, id: r.id, me: false, color: teamColor(r.team, TEAM_OTHER), invis: r.invis, walk: r.walk, move: r.mv, foco: r.foco, swingAt: r.swingAt, shotAt: r.shotAt, castAt: r.castAt, hitAt: r.flash }, now) });
     const me = this.me, dying = !me.alive && now - this.deadAt < DIE_MS + 600;
     if ((me.alive || dying) && !me.extracted) {
-      list.push({ y: me.y, draw: () => this.drawActor({ x: me.x, y: me.y, ax: me.ax, ay: me.ay, id: this.myId, me: true, color: teamColor(this.myTeam >= 0 ? this.myTeam : undefined, TEAM_ME), walk: this.walk, move: this.moveAmt, foco: this.build.focos[this.foco], swingAt: this.swingAt, shotAt: this.shotAt, castAt: this.lastCastAt, hitAt: this.hurtAt, dieAt: me.alive ? undefined : this.deadAt }, now) });
+      list.push({ y: me.y, draw: () => this.drawActor({ x: me.x, y: me.y, ax: me.ax, ay: me.ay, id: this.myId, me: true, color: teamColor(this.myTeam >= 0 ? this.myTeam : undefined, TEAM_ME), invis: this.invis, walk: this.walk, move: this.moveAmt, foco: this.build.focos[this.foco], swingAt: this.swingAt, shotAt: this.shotAt, castAt: this.lastCastAt, hitAt: this.hurtAt, dieAt: me.alive ? undefined : this.deadAt }, now) });
     }
     for (const c of this.chests) list.push({ y: c.y, draw: () => this.drawChest(c) });
     for (const r of this.remains) list.push({ y: r.y, draw: () => this.drawRemains(r.x, r.y) });
@@ -478,7 +492,6 @@ export class Game {
     g.lineCap = 'round'; g.lineJoin = 'round';
     this.drawGroundMarks(remotesNow, sec);
     for (const o of list) o.draw();
-    this.drawSwing(t);
 
     // 3. Luz: se recorta la oscuridad con cada fuente y luego se tiñe con su color.
     const lights: Light[] = [];
@@ -532,7 +545,7 @@ export class Game {
     for (const p of this.sparks) { g.strokeStyle = `rgba(255,${(190 + p.l * 60) | 0},120,${p.l})`; g.lineWidth = 3 * p.l + 1; g.beginPath(); g.moveTo(p.x, p.y); g.lineTo(p.x - p.vx * 0.03, p.y - p.vy * 0.03); g.stroke(); }
     this.drawCombatFx(now, art);
     g.globalCompositeOperation = 'source-over';
-    this.drawAimGuide();
+    this.drawAimIndicator();
 
     // 5. Interfaz dentro del mundo: nombres, daño, indicaciones y el colapso final.
     for (const { r, x, y } of remotesNow) {
@@ -541,8 +554,16 @@ export class Game {
       g.fillStyle = 'rgba(20,10,22,.8)'; g.fillRect(x - 23, y - 79, 46, 8);
       g.fillStyle = ally ? tc : '#ff6b6b'; g.fillRect(x - 22, y - 78, 44 * (r.hp / 100), 6);
       g.font = '500 13px "Alegreya Sans", sans-serif'; g.textAlign = 'center';
-      g.fillStyle = INK; g.fillText(r.name, x + 1, y - 84); g.fillStyle = r.id === this.target ? '#ffd36a' : ally ? tc : '#e2c8ff'; g.fillText(r.name, x, y - 85);
+      g.fillStyle = INK; g.fillText(r.name, x + 1, y - 84); g.fillStyle = ally ? tc : '#e2c8ff'; g.fillText(r.name, x, y - 85);
     }
+    // Rivales revelados (Escuchar al Viento): marca roja que se ve aunque estén en la oscuridad.
+    for (const { r, x, y } of remotesNow) {
+      if (!r.rev) continue;
+      const pulse = 1 + Math.sin(t / 120) * 0.08;
+      g.strokeStyle = 'rgba(255,90,90,.9)'; g.lineWidth = 3; g.beginPath(); g.ellipse(x, y, 30 * pulse, 12 * pulse, 0, 0, 6.283); g.stroke();
+      g.fillStyle = '#ff5a5a'; g.beginPath(); g.moveTo(x, y - 92); g.lineTo(x - 9, y - 106); g.lineTo(x + 9, y - 106); g.closePath(); g.fill();
+    }
+    this.drawAmmo();
     this.drawFloaters();
     this.drawPrompt(t);
     if (this.collapseR != null) {
@@ -629,13 +650,14 @@ export class Game {
     return sampleBuffer(r.buf, performance.now() - this.interpDelay);
   }
 
-  private nearestRemote(maxDist: number) {
-    let best: Remote | null = null, bd = maxDist;
+  /** Rival visible más cercano dentro de `maxDist` (para el auto-apuntado del toque rápido). */
+  private nearestEnemy(maxDist: number) {
+    let best: { x: number; y: number } | null = null, bd = maxDist;
     for (const r of this.remotes.values()) {
       if (!this.isEnemy(r)) continue;
       const p = this.remotePos(r.id); if (!p) continue;
       const d = Math.hypot(p.x - this.me.x, p.y - this.me.y);
-      if (d < bd) { bd = d; best = r; }
+      if (d < bd) { bd = d; best = p; }
     }
     return best;
   }
@@ -643,71 +665,107 @@ export class Game {
   /** Rival: de otro equipo (o cualquiera si la partida no tiene equipos). */
   private isEnemy(r: Remote) { return this.myTeam < 0 || r.team == null || r.team !== this.myTeam; }
 
-  private setTarget(id: string | null) {
-    if (id === this.target) return;
-    this.target = id; this.targetSetAt = performance.now();
+  /** Forma y alcance de lo que se apunta: el básico del Foco en la mano o la habilidad. */
+  private shapeOf(slot: AimSlot): Shape {
+    return slot === 'B' ? FOCOS[this.build.focos[this.foco]].basic.shape : abilityFor(this.build, this.foco, slot).shape;
+  }
+
+  /**
+   * Punto apuntado. PC: el cursor. Táctil: la dirección del arrastre (en zonas, la distancia también);
+   * un toque rápido apunta al rival más cercano en alcance, o hacia donde mira el personaje.
+   */
+  private aimPoint(slot: AimSlot, drag: Drag | null, quick: boolean) {
+    const s = this.shapeOf(slot), range = Math.max(1, s.range) * TILE, me = this.me;
+    if (s.type === 'propio') return { x: me.x, y: me.y };
+    if (drag && drag.len > 18) {
+      const k = s.type === 'zona' ? Math.min(1, drag.len / 90) : 1;
+      return { x: me.x + (drag.dx / drag.len) * range * k, y: me.y + (drag.dy / drag.len) * range * k };
+    }
+    if (!this.input.touch && this.input.mouse && !quick) {
+      const w = this.worldOf(this.input.mouse.x, this.input.mouse.y); return { x: w.x, y: w.y + 22 };
+    }
+    const e = this.nearestEnemy(range + TILE);
+    if (e) return { x: e.x, y: e.y };
+    return { x: me.x + me.ax * range * 0.8, y: me.y + me.ay * range * 0.8 };
   }
 
   private handleCombatInput(active: boolean) {
     const ev = this.input.consumeEvents(), now = performance.now();
-    if (ev.click) {
-      // Clic sobre un enemigo lo fija; clic en el suelo lo suelta.
-      const w = this.worldOf(ev.click.x, ev.click.y);
-      let hit: string | null = null, bd = 48;
-      for (const r of this.remotes.values()) {
-        if (!this.isEnemy(r)) continue;
-        const p = this.remotePos(r.id); if (!p) continue;
-        const d = Math.hypot(p.x - w.x, p.y - 26 - w.y);
-        if (d < bd) { bd = d; hit = r.id; }
-      }
-      this.setTarget(hit);
-    }
-    if (ev.tab) this.setTarget(this.nearestRemote(10 * TILE)?.id ?? null);
-    if (ev.clear) this.setTarget(null);
-    if (this.input.consumeAttack()) this.setTarget(this.nearestRemote(9 * TILE)?.id ?? this.target);
     if (!active) return;
     if (ev.swap && now >= this.swapUntil) {
       this.foco = this.foco === 0 ? 1 : 0; this.swapUntil = now + SWAP_MS; this.swapAt = now; this.pendingSwap = true;
+      this.nextShotAt = Math.max(this.nextShotAt, now + 250);
     }
-    for (const c of ev.casts) this.tryCast(c, now);
+    for (const r of ev.releases) {
+      const p = this.aimPoint(r.slot, r.drag, r.quick);
+      if (r.slot === 'B') this.tryFire(p, now); else this.tryCast(r.slot, p, now);
+    }
   }
 
-  /** Lanzamiento al instante: se predice la recarga y el efecto; el servidor confirma. */
-  private tryCast(c: CastRequest, now: number) {
-    const ab = abilityFor(this.build, this.foco, c.slot);
+  /** Básico apuntado: se predice la carga, la animación y el proyectil; el servidor decide el daño. */
+  private tryFire(p: { x: number; y: number }, now: number) {
+    const foco = FOCOS[this.build.focos[this.foco]], b = foco.basic;
+    if (this.ammo < 1 || now < this.nextShotAt) { this.ammoDeny = now; return; }
+    this.ammo -= 1; this.nextShotAt = now + b.intervalMs; this.lastFireAt = now;
+    const n = ++this.shotN;
+    this.pendingFire = { x: Math.round(p.x), y: Math.round(p.y), n };
+    const aim = clampAim(this.me, p, b.shape.range);
+    this.me.ax = aim.dirX; this.me.ay = aim.dirY;
+    if (b.delivery === 'proyectil') { this.shotAt = now; this.predictProjectiles(n, aim.dirX, aim.dirY, b.projectile!, b.shape.range, foco.id); }
+    else { this.swingAt = now; this.addFx('arco', this.me.x, this.me.y, { dx: aim.dirX, dy: aim.dirY, r: b.shape.range * TILE, ang: b.shape.angle, rgb: foco.rgb }); }
+  }
+
+  /** Habilidad: se predice la recarga y el efecto (embestida y parpadeo incluidos); el servidor confirma. */
+  private tryCast(slot: Slot, p: { x: number; y: number }, now: number) {
+    const ab = abilityFor(this.build, this.foco, slot);
     if (now < this.gcdUntil || now < (this.cdById[ab.id] ?? 0)) return;
-    const range = (ab.range || 3) * TILE;
-    let x: number, y: number;
-    const tp = this.target ? this.remotePos(this.target) : null;
-    if (c.drag) {
-      const k = ab.aim === 'zona' ? Math.min(1, c.drag.len / 90) : 1;
-      x = this.me.x + (c.drag.dx / c.drag.len) * range * k; y = this.me.y + (c.drag.dy / c.drag.len) * range * k;
-    } else if (!this.input.touch && this.input.mouse) {
-      const w = this.worldOf(this.input.mouse.x, this.input.mouse.y); x = w.x; y = w.y + 22;
-    } else if (tp) { x = tp.x; y = tp.y; }
-    else { x = this.me.x + this.me.ax * range * 0.7; y = this.me.y + this.me.ay * range * 0.7; }
+    const s = ab.shape, aim = clampAim(this.me, p, s.range || 1);
     this.cdById[ab.id] = now + ab.cd * 1000; this.castAt[ab.id] = now; this.gcdUntil = now + GCD_MS;
-    if (ab.id !== 'llamar_piedra' && ab.id !== 'barrido') this.lastCastAt = now; else if (ab.id === 'barrido') this.swingAt = now;
-    this.pendingCast = { slot: c.slot, x: Math.round(x), y: Math.round(y), ...(this.target ? { target: this.target } : {}) };
-    const d = Math.hypot(x - this.me.x, y - this.me.y) || 1, dx = (x - this.me.x) / d, dy = (y - this.me.y) / d;
-    this.me.ax = dx; this.me.ay = dy;
-    if (ab.id === 'llamar_piedra') { this.dashLeft = DASH_S; this.dashDir = { x: dx, y: dy }; }
-    this.addFx(ab.id === 'llamar_piedra' ? 'embestida' : ab.id, this.me.x, this.me.y, { dx, dy, r: (ab.radius ?? 0) * TILE });
+    const n = ++this.shotN;
+    this.pendingCast = { slot, x: Math.round(p.x), y: Math.round(p.y), n };
+    if (s.type !== 'propio') { this.me.ax = aim.dirX; this.me.ay = aim.dirY; }
+    if (s.type === 'propio' && ab.effect.knock) this.swingAt = now; else if (ab.delivery !== 'embestida') this.lastCastAt = now;
+    const fx = { dx: aim.dirX, dy: aim.dirY, rgb: ab.rgb };
+    switch (ab.delivery) {
+      case 'embestida':
+        this.dashLeft = DASH_S; this.dashDir = { x: aim.dirX, y: aim.dirY }; this.dashMul = dashMulFor(s.range);
+        this.addFx(ab.id, this.me.x, this.me.y, { ...fx, r: s.range * TILE });
+        break;
+      case 'parpadeo': {
+        const from = { x: this.me.x, y: this.me.y }, to = blinkTarget(this.map, this.pred, p, s.range);
+        this.pred = { x: to.x, y: to.y }; this.err = { x: 0, y: 0 }; this.me.x = to.x; this.me.y = to.y;
+        this.addFx(ab.id, from.x, from.y, { ...fx, x2: to.x, y2: to.y });
+        break;
+      }
+      case 'proyectil':
+        this.predictProjectiles(n, aim.dirX, aim.dirY, ab.projectile!, s.range, ab.id);
+        break;
+      case 'instante': {
+        const c = s.type === 'zona' ? { x: aim.x, y: aim.y } : { x: this.me.x, y: this.me.y };
+        this.addFx(ab.id, c.x, c.y, { ...fx, r: (s.type === 'cono' ? s.range : s.radius ?? 0) * TILE, ang: s.angle });
+        break;
+      }
+    }
   }
 
-  private addFx(kind: string, x: number, y: number, o: { dx?: number; dy?: number; r?: number; x2?: number; y2?: number } = {}) {
-    const dur = kind === 'bolt' ? 140 : kind === 'embestida' ? 400 : 520;
+  /** Proyectiles propios dibujados al instante; el servidor decide si tocan a alguien. */
+  private predictProjectiles(n: number, dirX: number, dirY: number, def: ProjectileDef, rangeTiles: number, kind: string) {
+    const now = performance.now();
+    for (const [dx, dy] of fanDirections(dirX, dirY, def.count ?? 1, ((def.spreadDeg ?? 0) * Math.PI) / 180)) {
+      this.myShots.push({ n, kind, x0: this.me.x + dx * 20, y0: this.me.y - 22 + dy * 20, dx, dy, speed: def.speed, radius: def.radius, range: rangeTiles * TILE, t0: now, seen: false, dead: false, pierce: !!def.pierce });
+    }
+  }
+
+  private addFx(kind: string, x: number, y: number, o: Partial<Fx> = {}) {
+    const dur = kind === 'arco' ? 240 : kind === 'escuchar' ? 900 : 520;
     this.fxs.push({ kind, x, y, ...o, t0: performance.now(), dur });
-    if (this.fxs.length > 60) this.fxs.shift();
+    if (this.fxs.length > 80) this.fxs.shift();
   }
 
-  /** Ataque básico de otro jugador: giro del báculo o disparo de ámbar hacia su objetivo. */
-  private remoteAttack(r: Remote, o: { x: number; y: number; tg?: string | null; foco?: string }) {
+  /** Ataque básico de otro jugador: la animación (sus proyectiles llegan en la instantánea). */
+  private remoteAttack(r: Remote, o: { foco?: string }) {
     const foco = FOCOS[o.foco ?? 'vara'];
-    if (foco?.melee) { r.swingAt = performance.now(); return; }
-    r.shotAt = performance.now();
-    const tgt = o.tg === this.myId ? this.me : o.tg ? this.remotePos(o.tg) : null;
-    if (tgt) this.addFx('bolt', o.x, o.y - 26, { x2: tgt.x, y2: tgt.y - 26 });
+    if (foco?.melee) r.swingAt = performance.now(); else r.shotAt = performance.now();
   }
 
   /** Estado de combate que confirma el servidor. */
@@ -715,86 +773,150 @@ export class Game {
     const you = m.you;
     if (you.build) this.build = you.build;
     if (now - this.swapAt > 700 && (you.foco === 0 || you.foco === 1)) this.foco = you.foco;
-    this.slowMul = you.slow ?? 1;
+    this.slowMul = you.slow ?? 1; this.rooted = !!you.root; this.invis = !!you.invis; this.revealing = !!you.reveal;
+    // Munición: la del servidor manda, salvo justo después de un disparo predicho.
+    if (typeof you.ammo === 'number' && now - this.lastFireAt > 350) { this.ammo = you.ammo; this.nextShotAt = Math.max(this.nextShotAt, now + (you.nextShot ?? 0)); }
     if (you.cds) for (const slot of ['Q', 'E', 'R'] as Slot[]) {
       const id = abilityFor(this.build, this.foco, slot).id, srv = now + you.cds[slot];
       // Si el servidor rechazó un lanzamiento predicho, la recarga vuelve a su valor real.
       if (srv > (this.cdById[id] ?? 0) + 80 || now - (this.castAt[id] ?? -1e9) > 700) this.cdById[id] = srv;
     }
-    if (you.target == null && this.target && this.targetSent === this.target && now - this.targetSetAt > 700) this.target = null;
-    if (you.attackAt && you.attackAt > this.lastAttackAt) {
-      const first = this.lastAttackAt === 0;
-      this.lastAttackAt = you.attackAt;
-      if (!first) {
-        const foco = FOCOS[this.build.focos[this.foco]];
-        const tp = this.target ? this.remotePos(this.target) : null;
-        if (foco.melee) this.swingAt = now;
-        else { this.shotAt = now; if (tp) this.addFx('bolt', this.me.x, this.me.y - 26, { x2: tp.x, y2: tp.y - 26 }); }
-      }
+    const seen = new Set<number>(), mine = new Set<number>();
+    for (const p of m.projectiles ?? []) {
+      if (p.o === this.myId) { if (p.n != null) mine.add(p.n); continue; }
+      this.projectiles.set(p.id, { x: p.x, y: p.y, vx: p.vx, vy: p.vy, t: now, k: p.k, r: p.r }); seen.add(p.id);
     }
-    const seen = new Set<number>();
-    for (const p of m.projectiles ?? []) { this.projectiles.set(p.id, { x: p.x, y: p.y, vx: p.vx, vy: p.vy, t: now }); seen.add(p.id); }
     for (const id of this.projectiles.keys()) if (!seen.has(id)) this.projectiles.delete(id);
+    // Un disparo propio que el servidor ya mostró y luego quitó, chocó con algo.
+    for (const s of this.myShots) { if (mine.has(s.n)) s.seen = true; else if (s.seen && !s.pierce) s.dead = true; }
   }
 
-  /** Marcas en el piso: aro del objetivo, alcance del básico si está lejos y hielo de ralentización. */
+  /** Marcas en el piso: aliados, ralentizados e inmovilizados. */
   private drawGroundMarks(remotes: { r: Remote; x: number; y: number }[], sec: number) {
     const g = this.ctx;
+    const ring = (x: number, y: number, c: string, rx = 26) => { g.strokeStyle = c; g.lineWidth = 3; g.beginPath(); g.ellipse(x, y + 2, rx, rx * 0.38, 0, 0, 6.283); g.stroke(); };
     for (const { r, x, y } of remotes) {
-      if (!this.isEnemy(r)) { g.strokeStyle = teamColor(r.team, '#fff'); g.globalAlpha = 0.55; g.lineWidth = 3; g.beginPath(); g.ellipse(x, y + 2, 24, 9, 0, 0, 6.283); g.stroke(); g.globalAlpha = 1; }
-      if (r.slow) { g.strokeStyle = 'rgba(140,210,255,.75)'; g.lineWidth = 3; g.beginPath(); g.ellipse(x, y + 2, 26, 10, 0, 0, 6.283); g.stroke(); }
-      if (r.id !== this.target) continue;
-      const pulse = 1 + Math.sin(sec * 5) * 0.06;
-      g.strokeStyle = '#1d0c16'; g.lineWidth = 6; g.beginPath(); g.ellipse(x, y + 2, 30 * pulse, 12 * pulse, 0, 0, 6.283); g.stroke();
-      g.strokeStyle = '#ffd36a'; g.lineWidth = 3; g.setLineDash([10, 6]); g.lineDashOffset = -sec * 20; g.stroke(); g.setLineDash([]);
-      const foco = FOCOS[this.build.focos[this.foco]];
-      if (!inBasicRange(foco, Math.hypot(x - this.me.x, y - this.me.y), PLAYER.radius)) {
-        g.strokeStyle = 'rgba(255,211,106,.35)'; g.lineWidth = 2; g.setLineDash([6, 8]);
-        g.beginPath(); g.ellipse(this.me.x, this.me.y, foco.basic.range * TILE + PLAYER.radius, (foco.basic.range * TILE + PLAYER.radius) * 0.9, 0, 0, 6.283); g.stroke(); g.setLineDash([]);
-      }
+      if (!this.isEnemy(r)) { g.globalAlpha = 0.55; ring(x, y, teamColor(r.team, '#fff'), 24); g.globalAlpha = 1; }
+      if (r.slow) ring(x, y, 'rgba(140,210,255,.75)');
+      if (r.root) { g.setLineDash([6, 5]); g.lineDashOffset = -sec * 10; ring(x, y, 'rgba(120,230,140,.9)', 30); g.setLineDash([]); }
     }
-    if (this.slowMul < 1) { g.strokeStyle = 'rgba(140,210,255,.75)'; g.lineWidth = 3; g.beginPath(); g.ellipse(this.me.x, this.me.y + 2, 26, 10, 0, 0, 6.283); g.stroke(); }
+    if (this.slowMul < 1 && !this.rooted) ring(this.me.x, this.me.y, 'rgba(140,210,255,.75)');
+    if (this.rooted) { g.setLineDash([6, 5]); ring(this.me.x, this.me.y, 'rgba(120,230,140,.9)', 30); g.setLineDash([]); }
+  }
+
+  /** Color de magia (r,g,b) de un proyectil o efecto por su id. */
+  private rgbOf(kind: string): string {
+    return FOCOS[kind]?.rgb ?? NOMBRES[kind]?.rgb ?? Object.values(FOCOS).find((f) => f.insc.id === kind)?.insc.rgb ?? '255,200,110';
+  }
+
+  private drawShot(x: number, y: number, vx: number, vy: number, radius: number, kind: string, art: Sprites) {
+    const g = this.ctx, rgb = this.rgbOf(kind), sp = Math.hypot(vx, vy) || 1;
+    if (kind === 'fractura') {
+      // Grieta ancha que avanza por el piso.
+      g.fillStyle = `rgba(${rgb},.55)`; g.beginPath(); g.ellipse(x, y + 22, radius * 1.2, radius * 0.5, Math.atan2(vy, vx), 0, 6.283); g.fill();
+      return;
+    }
+    const s = Math.max(22, radius * 3);
+    g.globalAlpha = 0.95; g.drawImage(art.dot.white, x - s / 2, y - s / 2, s, s);
+    g.globalAlpha = 1; g.strokeStyle = `rgba(${rgb},.85)`; g.lineWidth = Math.max(3, radius * 0.6); g.lineCap = 'round';
+    g.beginPath(); g.moveTo(x, y); g.lineTo(x - (vx / sp) * radius * 4, y - (vy / sp) * radius * 4); g.stroke();
+    g.fillStyle = `rgb(${rgb})`; g.beginPath(); g.arc(x, y, Math.max(4, radius * 0.55), 0, 6.283); g.fill();
   }
 
   /** Proyectiles y efectos de habilidades (en modo aditivo, brillan sobre la oscuridad). */
   private drawCombatFx(now: number, art: Sprites) {
     const g = this.ctx;
     for (const p of this.projectiles.values()) {
-      const k = Math.min(0.12, (now - p.t) / 1000), x = p.x + p.vx * k, y = p.y + p.vy * k;
-      g.globalAlpha = 0.9; g.drawImage(art.dot.gold, x - 16, y - 16, 32, 32);
-      g.globalAlpha = 1; g.strokeStyle = 'rgba(255,200,110,.7)'; g.lineWidth = 3; g.beginPath(); g.moveTo(x, y); g.lineTo(x - p.vx * 0.04, y - p.vy * 0.04); g.stroke();
+      const k = Math.min(0.12, (now - p.t) / 1000);
+      this.drawShot(p.x + p.vx * k, p.y + p.vy * k, p.vx, p.vy, p.r ?? 8, p.k ?? '', art);
+    }
+    // Disparos propios predichos: avanzan solos hasta su alcance o el primer muro.
+    this.myShots = this.myShots.filter((s) => !s.dead && (now - s.t0) / 1000 * s.speed < s.range);
+    for (const s of this.myShots) {
+      const d = ((now - s.t0) / 1000) * s.speed, x = s.x0 + s.dx * d, y = s.y0 + s.dy * d;
+      if (solidAt(this.map, x, y + 20, true)) { s.dead = true; continue; }
+      this.drawShot(x, y, s.dx * s.speed, s.dy * s.speed, s.radius, s.kind, art);
     }
     this.fxs = this.fxs.filter((f) => now - f.t0 < f.dur);
     for (const f of this.fxs) {
-      const k = (now - f.t0) / f.dur, a = 1 - k;
-      if (f.kind === 'temblor' || f.kind === 'barrido') {
-        const R = (f.r || 160) * (0.35 + 0.65 * k);
-        g.strokeStyle = f.kind === 'temblor' ? `rgba(255,160,80,${a * 0.8})` : `rgba(255,220,140,${a})`; g.lineWidth = 10 * a + 2;
+      const k = (now - f.t0) / f.dur, a = 1 - k, rgb = f.rgb ?? this.rgbOf(f.kind);
+      const def = NOMBRES[f.kind] ?? Object.values(FOCOS).find((x) => x.insc.id === f.kind)?.insc;
+      const type = f.kind === 'arco' ? 'cono' : def?.shape.type;
+      if (def?.delivery === 'parpadeo' && f.x2 != null && f.y2 != null) {
+        for (const [px, py] of [[f.x, f.y], [f.x2, f.y2]]) { g.globalAlpha = a; g.drawImage(art.dot.violet, px - 50, py - 70, 100, 100); }
+        g.globalAlpha = 1;
+      } else if (def?.delivery === 'embestida') {
+        g.strokeStyle = `rgba(${rgb},${a * 0.8})`; g.lineWidth = 16 * a + 2; g.lineCap = 'round';
+        const L = (f.r ?? 4 * TILE) * Math.min(1, k * 1.6);
+        g.beginPath(); g.moveTo(f.x, f.y - 20); g.lineTo(f.x + (f.dx ?? 0) * L, f.y - 20 + (f.dy ?? 0) * L); g.stroke();
+      } else if (type === 'cono') {
+        const a0 = Math.atan2(f.dy ?? 0, f.dx ?? 1), half = ((f.ang ?? 90) / 2) * (Math.PI / 180), R = (f.r ?? 100) * (0.5 + 0.5 * Math.min(1, k * 2));
+        g.fillStyle = `rgba(${rgb},${a * 0.35})`; g.strokeStyle = `rgba(${rgb},${a * 0.9})`; g.lineWidth = 5 * a + 1;
+        g.beginPath(); g.moveTo(f.x, f.y - 10); g.arc(f.x, f.y - 10, R, a0 - half, a0 + half); g.closePath(); g.fill();
+        g.beginPath(); g.arc(f.x, f.y - 10, R, a0 - half, a0 + half); g.stroke();
+      } else if (type === 'zona' || type === 'propio') {
+        const R = (f.r || 80) * (type === 'propio' ? 0.35 + 0.65 * k : 1);
+        g.strokeStyle = `rgba(${rgb},${a * 0.9})`; g.lineWidth = 8 * a + 2;
         g.beginPath(); g.ellipse(f.x, f.y, R, R * 0.6, 0, 0, 6.283); g.stroke();
-        if (f.kind === 'barrido') { g.lineWidth = 6; g.beginPath(); g.arc(f.x, f.y - 22, 64, k * 9, k * 9 + 2.4); g.stroke(); }
-      } else if (f.kind === 'embestida') {
-        g.strokeStyle = `rgba(255,170,90,${a * 0.8})`; g.lineWidth = 16 * a + 2;
-        g.beginPath(); g.moveTo(f.x, f.y - 20); g.lineTo(f.x + (f.dx ?? 0) * 4 * TILE * Math.min(1, k * 1.6), f.y - 20 + (f.dy ?? 0) * 4 * TILE * Math.min(1, k * 1.6)); g.stroke();
-      } else if (f.kind === 'andanada') {
+        if (type === 'zona') { g.fillStyle = `rgba(${rgb},${a * 0.25})`; g.fill(); }
+      } else {
         g.globalAlpha = a; g.drawImage(art.dot.gold, f.x + (f.dx ?? 0) * 30 - 30, f.y - 50 + (f.dy ?? 0) * 30, 60, 60); g.globalAlpha = 1;
-      } else if (f.kind === 'bolt' && f.x2 != null && f.y2 != null) {
-        const bx = f.x + (f.x2 - f.x) * k, by = f.y + (f.y2 - f.y) * k;
-        g.globalAlpha = 0.95; g.drawImage(art.dot.gold, bx - 12, by - 12, 24, 24); g.globalAlpha = 1;
-        g.strokeStyle = 'rgba(255,200,110,.75)'; g.lineWidth = 3; g.beginPath(); g.moveTo(bx, by); g.lineTo(bx - (f.x2 - f.x) * 0.12, by - (f.y2 - f.y) * 0.12); g.stroke();
       }
     }
   }
 
-  /** Guía de apuntado mientras se arrastra un botón de habilidad en móvil. */
-  private drawAimGuide() {
-    const d = this.input.aimDrag; if (!d || d.len < 18) return;
-    const ab = abilityFor(this.build, this.foco, d.slot), g = this.ctx;
-    const range = (ab.range || 3) * TILE, dx = d.dx / d.len, dy = d.dy / d.len;
-    g.strokeStyle = 'rgba(255,211,106,.85)'; g.lineWidth = 4; g.setLineDash([12, 8]);
-    if (ab.aim === 'propio') { g.beginPath(); g.ellipse(this.me.x, this.me.y, (ab.radius ?? 2) * TILE, (ab.radius ?? 2) * TILE * 0.6, 0, 0, 6.283); g.stroke(); }
-    else if (ab.aim === 'zona') { const k = Math.min(1, d.len / 90); g.beginPath(); g.arc(this.me.x + dx * range * k, this.me.y + dy * range * k, (ab.radius ?? 1) * TILE, 0, 6.283); g.stroke(); }
-    else { g.beginPath(); g.moveTo(this.me.x, this.me.y - 20); g.lineTo(this.me.x + dx * range, this.me.y - 20 + dy * range); g.stroke(); }
-    g.setLineDash([]);
+  /**
+   * Indicador en el piso mientras se mantiene el apuntado (estilo Brawl Stars): línea, cono, zona,
+   * círculo propio o salto, con el alcance real. En rojo si aún no se puede usar.
+   */
+  private drawAimIndicator() {
+    const h = this.input.hold; if (!h || !this.me.alive || this.me.extracted) return;
+    if (this.input.touch && (!h.drag || h.drag.len < 18)) return; // en táctil aparece al arrastrar
+    const s = this.shapeOf(h.slot), g = this.ctx, me = this.me, now = performance.now();
+    const p = this.aimPoint(h.slot, h.drag, false), aim = clampAim(me, p, s.range || 1);
+    let ready = true;
+    if (h.slot === 'B') ready = this.ammo >= 1;
+    else { const ab = abilityFor(this.build, this.foco, h.slot); ready = now >= (this.cdById[ab.id] ?? 0); }
+    const col = ready ? '255,255,255' : '255,90,90';
+    g.save();
+    g.fillStyle = `rgba(${col},.16)`; g.strokeStyle = `rgba(${col},.8)`; g.lineWidth = 3; g.lineJoin = 'round';
+    const range = s.range * TILE, a0 = Math.atan2(aim.dirY, aim.dirX);
+    if (s.type === 'linea') {
+      const w = Math.max(16, (s.width ?? 0.4) * TILE);
+      g.translate(me.x, me.y); g.rotate(a0);
+      g.beginPath(); g.roundRect(0, -w / 2, range, w, w / 2); g.fill(); g.stroke();
+      g.strokeStyle = `rgba(${col},.55)`;
+      for (let x = 40; x < range - 10; x += 46) { g.beginPath(); g.moveTo(x, -w * 0.28); g.lineTo(x + 10, 0); g.lineTo(x, w * 0.28); g.stroke(); }
+    } else if (s.type === 'cono') {
+      const half = ((s.angle ?? 90) / 2) * (Math.PI / 180);
+      g.beginPath(); g.moveTo(me.x, me.y); g.arc(me.x, me.y, range, a0 - half, a0 + half); g.closePath(); g.fill(); g.stroke();
+    } else if (s.type === 'zona') {
+      g.setLineDash([10, 8]); g.strokeStyle = `rgba(${col},.4)`; g.beginPath(); g.arc(me.x, me.y, range, 0, 6.283); g.stroke(); g.setLineDash([]);
+      g.strokeStyle = `rgba(${col},.85)`; g.beginPath(); g.arc(aim.x, aim.y, (s.radius ?? 1) * TILE, 0, 6.283); g.fill(); g.stroke();
+    } else if (s.type === 'propio') {
+      g.beginPath(); g.arc(me.x, me.y, Math.max(0.8, s.radius ?? 1) * TILE, 0, 6.283); g.fill(); g.stroke();
+    } else {
+      const ab = h.slot === 'B' ? null : abilityFor(this.build, this.foco, h.slot);
+      const to = ab?.delivery === 'parpadeo' ? blinkTarget(this.map, this.pred, p, s.range) : { x: me.x + aim.dirX * range, y: me.y + aim.dirY * range };
+      g.lineWidth = Math.max(16, PLAYER.radius * 1.2); g.lineCap = 'round'; g.strokeStyle = `rgba(${col},.28)`;
+      g.beginPath(); g.moveTo(me.x, me.y); g.lineTo(to.x, to.y); g.stroke();
+      g.lineWidth = 3; g.strokeStyle = `rgba(${col},.85)`; g.beginPath(); g.arc(to.x, to.y, PLAYER.radius + 4, 0, 6.283); g.fill(); g.stroke();
+    }
+    g.restore();
+  }
+
+  /** Barra de 3 cargas bajo el personaje propio; tiembla en rojo si se intenta disparar sin munición. */
+  private drawAmmo() {
+    if (!this.me.alive || this.me.extracted) return;
+    const g = this.ctx, now = performance.now(), deny = now - this.ammoDeny < 300;
+    const w = 15, gap = 3, total = AMMO_MAX * w + (AMMO_MAX - 1) * gap;
+    const x0 = this.me.x - total / 2 + (deny ? Math.sin(now / 20) * 2 : 0), y = this.me.y + 14;
+    g.fillStyle = INK; g.beginPath(); g.roundRect(x0 - 3, y - 3, total + 6, 11, 4); g.fill();
+    for (let i = 0; i < AMMO_MAX; i++) {
+      const fill = Math.max(0, Math.min(1, this.ammo - i)), x = x0 + i * (w + gap);
+      g.fillStyle = 'rgba(255,255,255,.12)'; g.fillRect(x, y, w, 5);
+      g.fillStyle = deny ? '#ff5a5a' : fill >= 1 ? '#ffb347' : '#a8743a'; g.fillRect(x, y, w * fill, 5);
+    }
   }
 
   /** Barra de habilidades (PC) y botones táctiles: nombre, recarga y Foco en la mano. */
@@ -871,18 +993,6 @@ export class Game {
     g.fillStyle = '#ffc08a'; g.fillText(label, best.x, y);
   }
 
-  /** Arco del golpe propio, dibujado al instante (predicción en el cliente). */
-  private drawSwing(_t: number) {
-    const k = (performance.now() - this.swingAt) / 260;
-    if (k < 0 || k > 1 || !this.me.alive) return;
-    const g = this.ctx, a0 = Math.atan2(this.me.ay, this.me.ax);
-    g.save();
-    g.globalCompositeOperation = 'lighter';
-    g.strokeStyle = `rgba(255,190,90,${(1 - k) * 0.9})`; g.lineWidth = 9; g.lineCap = 'round';
-    g.beginPath(); g.arc(this.me.x, this.me.y - 22, 72, a0 - 1.1, a0 - 1.1 + 2.2 * Math.min(1, k * 1.6)); g.stroke();
-    g.restore();
-  }
-
   /** Números de daño confirmados por el servidor, sobre la posición que vio el atacante. */
   private drawFloaters() {
     const g = this.ctx, now = performance.now();
@@ -892,7 +1002,7 @@ export class Game {
       const k = (now - f.t0) / 800;
       g.globalAlpha = 1 - k;
       g.fillStyle = '#1d0c16'; g.fillText(f.text, f.x + 1.5, f.y - 60 - k * 30 + 1.5);
-      g.fillStyle = '#ffd36a'; g.fillText(f.text, f.x, f.y - 60 - k * 30);
+      g.fillStyle = f.heal ? '#8cff9e' : '#ffd36a'; g.fillText(f.text, f.x, f.y - 60 - k * 30);
     }
     g.globalAlpha = 1;
   }
@@ -916,7 +1026,7 @@ export class Game {
     }
     const die = a.dieAt != null ? Math.min(1, (now - a.dieAt) / DIE_MS) : undefined;
     const pose = animate(view, { t: now / 1000, walk: a.walk, move: a.move, action, die }, BODIES[app.body]);
-    const alpha = die != null ? Math.max(0, 1 - Math.max(0, (now - a.dieAt! - DIE_MS) / 600)) : 1;
+    const alpha = die != null ? Math.max(0, 1 - Math.max(0, (now - a.dieAt! - DIE_MS) / 600)) : a.invis ? 0.4 : 1;
     if (die == null) this.blob(a.x, a.y, 20);
     drawCharacter(this.ctx, {
       x: a.x, y: a.y, view, flip, app, pose, t: now / 1000, alpha,

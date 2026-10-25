@@ -360,6 +360,44 @@ function weapon(foco: string): Piece {
       return;
     }
     const x = w[0] + (c.view === 'side' ? a * 0.15 : 0), y0 = w[1] + a * 0.35, top = y0 - H * 0.52, bot = y0 + H * 0.16;
+    const glow = (gx: number, gy: number, r: number, rgb: string) => {
+      const g = p.g, gr = g.createRadialGradient(gx, gy, 0, gx, gy, r);
+      gr.addColorStop(0, `rgba(${rgb},.75)`); gr.addColorStop(1, `rgba(${rgb},0)`);
+      g.fillStyle = gr; g.beginPath(); g.arc(gx, gy, r, 0, 6.283); g.fill();
+    };
+    switch (foco) {
+      case 'martillo': // mango corto y cabeza de basalto con runa
+        capsule(p, [x, bot], [x, y0 - H * 0.32], LW * 1.9, '#5a3a24');
+        shape(p, [[x - 110, y0 - H * 0.42], [x + 110, y0 - H * 0.42], [x + 110, y0 - H * 0.3], [x - 110, y0 - H * 0.3]], '#6c6d7c', false);
+        line(p, [[x - 40, y0 - H * 0.36], [x + 40, y0 - H * 0.36]], '#ff8a3a', LW * 0.6);
+        return;
+      case 'daga': // hoja corta de ceniza
+        shape(p, [[x - 30, y0 - 20], [x + 30, y0 - 20], [x + 18, y0 - H * 0.2], [x, y0 - H * 0.27], [x - 18, y0 - H * 0.2]], '#c9b8dd', false);
+        capsule(p, [x - 50, y0 - 18], [x + 50, y0 - 18], LW * 1.4, '#3a2a44');
+        return;
+      case 'arco': { // arco de madera con cuerda
+        const g = p.g, r = H * 0.3;
+        g.beginPath(); g.arc(x - r * 0.55, y0 - H * 0.1, r, -1.05, 1.05); g.lineWidth = LW * 2.2; g.strokeStyle = INK; g.stroke();
+        g.lineWidth = LW * 1.2; g.strokeStyle = col('#8a6a3c', p.k); g.stroke();
+        const yA = y0 - H * 0.1 - Math.sin(1.05) * r, yB = y0 - H * 0.1 + Math.sin(1.05) * r, xs = x - r * 0.55 + Math.cos(1.05) * r;
+        line(p, [[xs, yA], [xs, yB]], '#f4efe4', LW * 0.4);
+        return;
+      }
+      case 'orbe': // esfera de hilo que flota sobre la mano
+        glow(x, y0 - H * 0.12, a * 1.8, '140,255,170');
+        ellipse(p, x, y0 - H * 0.12, a * 0.8, a * 0.8, '#bff2c6', LW * 0.8);
+        line(p, [[x - a * 0.6, y0 - H * 0.12], [x + a * 0.6, y0 - H * 0.1]], '#5f9a64', LW * 0.45);
+        return;
+      case 'campana': // campana colgando de un mango
+        capsule(p, [x, y0 + 10], [x, y0 - H * 0.12], LW * 1.6, '#5a3a24');
+        shape(p, [[x - 26, y0 - H * 0.12], [x + 26, y0 - H * 0.12], [x + 70, y0 + H * 0.06], [x - 70, y0 + H * 0.06]], '#7fd6e0');
+        return;
+      case 'grimorio': // libro abierto con brillo lila
+        glow(x, y0 - 20, a * 1.6, '200,150,255');
+        shape(p, [[x - 100, y0 - 70], [x, y0 - 50], [x + 100, y0 - 70], [x + 100, y0 + 40], [x, y0 + 60], [x - 100, y0 + 40]], '#e8dcf6', false);
+        line(p, [[x, y0 - 50], [x, y0 + 60]], '#6a4a8a', LW * 0.5);
+        return;
+    }
     capsule(p, [x, bot], [x, top + 40], LW * 1.9, '#6b4226');
     shape(p, [[x, top - 70], [x + 46, top], [x, top + 70], [x - 46, top]], '#ffb347', false);
   } };

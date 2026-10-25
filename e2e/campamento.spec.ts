@@ -13,7 +13,10 @@ test('Flujo de campamento: preparar aspecto, invitar a la escuadra y entrar por 
   const antes = await cuerpo.textContent();
   await lider.click('.selector[data-part="body"] button[data-dir="1"]');
   await expect(cuerpo).not.toHaveText(antes ?? '');
-  await expect(lider.locator('.escuela[data-school="seleth"]')).toBeDisabled();
+  // Las 4 escuelas se pueden elegir; al tomar Seléth queda marcada.
+  await lider.click('.escuela[data-school="seleth"]');
+  await expect(lider.locator('.escuela[data-school="seleth"]')).toHaveAttribute('aria-pressed', 'true');
+  await lider.click('.escuela[data-school="tharven"]');
   await lider.click('.tabs [data-tab="campamento"]');
 
   // Invitación desde la lista de conectados.

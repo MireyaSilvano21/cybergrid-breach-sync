@@ -150,7 +150,7 @@ button:focus-visible,input:focus-visible{outline:3px solid var(--gold-l);outline
 #timer{font-size:1.1rem;color:var(--chalk-gold)}
 
 /* Barra de habilidades (PC): recuadros de tiza con ícono, tecla y recarga. */
-.abil{position:absolute;left:50%;transform:translateX(-50%);bottom:calc(104px + env(safe-area-inset-bottom));display:flex;gap:12px;pointer-events:auto}
+.abil{position:absolute;left:50%;transform:translateX(-50%);bottom:calc(104px + env(safe-area-inset-bottom));display:flex;gap:12px;pointer-events:none}
 .touch-on .abil{display:none}
 .ab{position:relative;width:66px;height:66px;border-radius:10px;background:radial-gradient(rgba(14,8,16,.7),rgba(14,8,16,.45));display:flex;flex-direction:column;align-items:center;justify-content:flex-end;padding:4px}
 .ab::before{content:"";position:absolute;inset:0;border:3px solid var(--chalk);border-radius:10px}
@@ -296,7 +296,7 @@ button:focus-visible,input:focus-visible{outline:3px solid var(--gold-l);outline
 .panel-screen button.escuela[aria-pressed="true"]{background:#fbe9b5;border-left-color:var(--leaf-d)}
 .panel-screen button.escuela:disabled{opacity:.6;filter:grayscale(.6)}
 .focos{display:grid;gap:8px;justify-items:start}
-.foco{display:flex;gap:10px;align-items:center;width:100%;padding:8px 10px;border:2px solid rgba(58,36,16,.6);border-radius:8px;background:rgba(255,250,235,.5);color:var(--paper-ink)}
+.foco{display:grid;grid-template-columns:auto 40px 1fr auto;gap:10px;align-items:center;width:100%;padding:8px 10px;border:2px solid rgba(58,36,16,.6);border-radius:8px;background:rgba(255,250,235,.5);color:var(--paper-ink)}
 .foco b{display:block;font-family:var(--display);font-size:1.1rem;color:#6b3a1c}
 .foco span{font-size:.85rem}
 .ico-foco{width:40px;height:40px;flex:none;background:var(--paper-ink);-webkit-mask:var(--ico) center/contain no-repeat;mask:var(--ico) center/contain no-repeat}
@@ -311,3 +311,23 @@ button:focus-visible,input:focus-visible{outline:3px solid var(--gold-l);outline
   .escena canvas{aspect-ratio:4/3}
   .vitrina canvas{aspect-ratio:1/1;max-height:60vh}
 }
+
+/* Íconos de tiza de las 4 escuelas y los 8 Focos (el arte final de Astra los reemplaza con el mismo nombre). */
+[data-ability="velo"]{--ico:url(/assets/ui/tiza-velo.svg)}
+[data-ability="paso"]{--ico:url(/assets/ui/tiza-paso.svg)}
+[data-ability="hilo_vida"]{--ico:url(/assets/ui/tiza-hilo_vida.svg)}
+[data-ability="atadura"]{--ico:url(/assets/ui/tiza-atadura.svg)}
+[data-ability="escuchar"]{--ico:url(/assets/ui/tiza-escuchar.svg)}
+[data-ability="rafaga"]{--ico:url(/assets/ui/tiza-rafaga.svg)}
+[data-ability="fractura"]{--ico:url(/assets/ui/tiza-fractura.svg)}
+[data-ability="corte"]{--ico:url(/assets/ui/tiza-corte.svg)}
+[data-ability="lluvia"]{--ico:url(/assets/ui/tiza-lluvia.svg)}
+[data-ability="vinculo"]{--ico:url(/assets/ui/tiza-vinculo.svg)}
+[data-ability="eco"]{--ico:url(/assets/ui/tiza-eco.svg)}
+[data-ability="grieta"]{--ico:url(/assets/ui/tiza-grieta.svg)}
+[data-ability="martillo"]{--ico:url(/assets/ui/tiza-martillo.svg)}
+[data-ability="daga"]{--ico:url(/assets/ui/tiza-daga.svg)}
+[data-ability="arco"]{--ico:url(/assets/ui/tiza-arco.svg)}
+[data-ability="orbe"]{--ico:url(/assets/ui/tiza-orbe.svg)}
+[data-ability="campana"]{--ico:url(/assets/ui/tiza-campana.svg)}
+[data-ability="grimorio"]{--ico:url(/assets/ui/tiza-grimorio.svg)}

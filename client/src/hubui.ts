@@ -3,7 +3,7 @@
  * y Preparación (escuela, Focos y aspecto). El perfil se guarda en el navegador y se manda al servidor.
  */
 import {
-  SCHOOLS, FOCOS, BODIES, BODY_IDS, OUTFIT_IDS, HEAD_IDS, MAX_TEAM_SIZE, ProfileSchema, defaultProfile,
+  SCHOOLS, FOCOS, NOMBRES, BODIES, BODY_IDS, OUTFIT_IDS, HEAD_IDS, MAX_TEAM_SIZE, ProfileSchema, defaultProfile,
   type Profile, type View,
 } from '@shared/index';
 import { CampScene, PreviewScene, type CampMember } from './camp';
@@ -188,17 +188,27 @@ export class HubUI {
       b.innerHTML = '<b></b><span class="titulo"></span><span class="rol"></span>';
       b.querySelector('b')!.textContent = s.name;
       b.querySelector('.titulo')!.textContent = s.title;
-      b.querySelector('.rol')!.textContent = s.playable ? s.role : `${s.role} · Próximamente`;
+      const ns = Object.values(NOMBRES).filter((n) => n.school === s.id).map((n) => n.name).join(' · ');
+      b.querySelector('.rol')!.textContent = s.playable ? `${s.role} · ${ns}` : `${s.role} · Próximamente`;
       b.addEventListener('click', () => this.save({ ...p, build: { ...p.build, school: s.id } }));
       return b;
     }));
-    const focos = $('foco-list');
+    // Focos: dos de los ocho, con flechas para cambiar cada uno (no se puede repetir).
+    const focos = $('foco-list'), ids = Object.keys(FOCOS);
     const cards = p.build.focos.map((id, i) => {
       const f = FOCOS[id], d = document.createElement('div');
-      d.className = 'foco'; d.dataset.ability = id;
-      d.innerHTML = '<span class="ico-foco" aria-hidden="true"></span><div><b></b><span></span></div>';
-      d.querySelector('b')!.textContent = f.name;
-      d.querySelector(':scope > div > span')!.textContent = `${i === 0 ? 'Empiezas con este' : 'Cambias con Espacio'} · ${f.melee ? 'cuerpo a cuerpo' : `a distancia (${f.basic.range} casillas)`} · R: ${f.insc.name}`;
+      d.className = 'foco'; d.dataset.ability = id; d.dataset.slot = String(i);
+      d.innerHTML = '<button type="button" class="mini" data-dir="-1" aria-label="Anterior">‹</button><span class="ico-foco" aria-hidden="true"></span><div><b></b><span></span></div><button type="button" class="mini" data-dir="1" aria-label="Siguiente">›</button>';
+      d.querySelector('b')!.textContent = `${i === 0 ? 'Principal' : 'Secundario'} · ${f.name}`;
+      const kind = f.basic.shape.type === 'cono' ? (f.melee ? 'cuerpo a cuerpo' : 'onda corta') : `a distancia, ${f.basic.shape.range} casillas`;
+      d.querySelector(':scope > div > span')!.textContent = `${f.desc} ${kind[0].toUpperCase() + kind.slice(1)}. R: ${f.insc.name}, ${f.insc.desc.toLowerCase()}`;
+      for (const b of d.querySelectorAll<HTMLButtonElement>('button')) b.addEventListener('click', () => {
+        const other = p.build.focos[1 - i], dir = Number(b.dataset.dir);
+        let k = ids.indexOf(id);
+        do k = (k + dir + ids.length) % ids.length; while (ids[k] === other);
+        const next: [string, string] = i === 0 ? [ids[k], other] : [other, ids[k]];
+        this.save({ ...p, build: { ...p.build, focos: next } });
+      });
       return d;
     });
     const swap = document.createElement('button');

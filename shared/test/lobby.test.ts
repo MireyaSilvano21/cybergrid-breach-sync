@@ -23,11 +23,11 @@ describe('Emparejamiento', () => {
 });
 
 describe('Perfil de Preparación', () => {
-  it('se valida y arma el build; escuelas bloqueadas o Focos repetidos vuelven al de prueba', () => {
+  it('se valida y arma el build con los Nombres de la escuela; Focos repetidos vuelven al de prueba', () => {
     const p = defaultProfile('jugador');
     expect(ProfileSchema.safeParse(p).success).toBe(true);
     expect(buildFromProfile({ ...p, build: { school: 'tharven', focos: ['anillo', 'vara'] } }).focos).toEqual(['anillo', 'vara']);
-    expect(buildFromProfile({ ...p, build: { school: 'seleth', focos: ['vara', 'anillo'] } })).toBe(DEFAULT_BUILD);
+    expect(buildFromProfile({ ...p, build: { school: 'seleth', focos: ['daga', 'arco'] } })).toEqual({ school: 'seleth', nombres: ['velo', 'paso'], focos: ['daga', 'arco'] });
     expect(buildFromProfile({ ...p, build: { school: 'tharven', focos: ['vara', 'vara'] } })).toBe(DEFAULT_BUILD);
     expect(ProfileSchema.safeParse({ ...p, appearance: { ...p.appearance, body: 'gigante' } }).success).toBe(false);
   });

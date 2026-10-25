@@ -43,10 +43,10 @@ export const ClientMessageSchema = z.discriminatedUnion('type', [
     viewT: z.number().finite().optional(),
     /** Multiplicador de velocidad que usó el cliente en este tramo (embestida o ralentización). */
     sp: z.number().min(0.3).max(5).default(1),
-    /** Objetivo fijado: id de un jugador; null lo suelta; ausente no cambia nada. */
-    target: z.string().max(40).nullable().optional(),
+    /** Básico apuntado hacia un punto del mundo; n es el número de disparo del cliente (para su predicción). */
+    fire: z.object({ x: z.number().finite(), y: z.number().finite(), n: z.number().int().nonnegative().max(1e9) }).optional(),
     /** Habilidad lanzada al instante hacia un punto del mundo (y, si aplica, sobre un objetivo). */
-    cast: z.object({ slot: z.enum(['Q', 'E', 'R']), x: z.number().finite(), y: z.number().finite(), target: z.string().max(40).optional() }).optional(),
+    cast: z.object({ slot: z.enum(['Q', 'E', 'R']), x: z.number().finite(), y: z.number().finite(), n: z.number().int().nonnegative().max(1e9).optional() }).optional(),
     /** Cambio rápido de Foco. */
     swap: z.boolean().default(false),
   }),
