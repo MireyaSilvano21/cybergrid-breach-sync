@@ -26,4 +26,6 @@ test('Flujo de lobbies: crear sala, marcar Listo y conectar sockets', async ({ b
   await expect(host.locator('#screen-game')).toBeVisible();
   await expect(guest.locator('#screen-game')).toBeVisible();
   await expect(host.locator('#ping')).toHaveText(/\d+ ms/, { timeout: 5000 });
+  // Cerrar las páginas: así sus partidas no siguen corriendo durante las demás pruebas.
+  await Promise.all([host.close(), guest.close()]);
 });

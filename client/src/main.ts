@@ -2,10 +2,11 @@ import './style.css';
 import { Net } from './net';
 import { Game } from './game';
 import { TEAMS, MAX_TEAM_SIZE } from '@shared/index';
+import { HubUI } from './hubui';
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 const screens = ['screen-login', 'screen-lobby', 'screen-game'] as const;
-function show(id: typeof screens[number]) { for (const s of screens) $(s).hidden = s !== id; }
+function show(id: typeof screens[number]) { for (const s of screens) $(s).hidden = s !== id; hub?.setVisible(id === 'screen-lobby'); }
 
 let token: string | null = null;
 try { token = sessionStorage.getItem('cg-token'); } catch { /* sin almacenamiento */ }
@@ -14,6 +15,9 @@ const net = new Net();
 let game: Game | null = null;
 let roomsTimer: number | undefined;
 let currentRoom: string | null = null;
+/** La partida actual vino del emparejamiento (al terminar se vuelve al campamento). */
+let matchmade = false;
+let hub: HubUI | null = null;
 
 async function api(path: string, opts: { method?: string; body?: unknown } = {}) {
   const res = await fetch(path, {
@@ -148,12 +152,17 @@ net.on('lobby', (m) => {
     return sec;
   }));
 });
+// Campamento: escuadra, preparación y emparejamiento.
+hub = new HubUI(net, () => currentRoom !== null);
+
 $('ready-btn').addEventListener('click', () => net.send({ type: 'ready', ready: $('ready-btn').getAttribute('aria-pressed') !== 'true' }));
 $('leave-btn').addEventListener('click', () => { net.send({ type: 'leave' }); currentRoom = null; $('room-panel').hidden = true; refreshRooms(); });
 
 // ---------- Partida ----------
 net.on('start', (m) => {
   window.clearInterval(roomsTimer);
+  matchmade = currentRoom === null;
+  $('back-btn').textContent = matchmade ? 'Volver al campamento' : 'Volver a la sala';
   $('result').hidden = true;
   show('screen-game');
   game?.destroy();

@@ -250,3 +250,64 @@ button:focus-visible,input:focus-visible{outline:3px solid var(--gold-l);outline
 .aliado .ali-hp i{display:block;height:100%;background:var(--team)}
 .aliado[data-estado="cayo"]{opacity:.5;text-decoration:line-through}
 .aliado[data-estado="escapo"]{color:var(--chalk-mint)}
+
+/* ================= Campamento (lobby estilo Delta Force) ================= */
+.lobby{width:min(1180px,100%)}
+.panel-screen .tabs{display:flex;gap:6px;flex-wrap:wrap}
+.panel-screen .tabs button{background:rgba(10,20,5,.35);border:2px solid rgba(29,12,22,.8);box-shadow:none;color:#e9dcb8;padding:6px 14px;border-radius:8px;text-shadow:0 2px 0 rgba(29,12,22,.6)}
+.panel-screen .tabs button[aria-selected="true"]{background:linear-gradient(#f6d46a,#d29a26);color:var(--ink);text-shadow:none;box-shadow:0 3px 0 var(--ink)}
+.panel-screen .tabs button:active{transform:none}
+.tab{margin-top:16px}
+.panel-screen .hoja h3{color:#6b3a1c;font-size:1.3rem}
+.panel-screen .hoja h3.sep{margin-top:16px;padding-top:12px;border-top:2px dashed rgba(58,36,16,.35)}
+.hoja .list li,.pagina .list li{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:8px 11px;border:2px solid rgba(58,36,16,.6);border-radius:8px;background:rgba(255,250,235,.5);font-weight:500;color:var(--paper-ink)}
+.hoja .list li.libre{justify-content:center;font-style:italic;color:var(--paper-muted);border-style:dashed;background:none}
+.panel-screen button.mini{padding:4px 11px;font-size:.85rem;border-width:2px;box-shadow:0 3px 0 var(--ink)}
+
+.campamento{display:grid;grid-template-columns:1fr 330px;gap:16px;align-items:start;position:relative}
+.escena{position:relative;border:4px solid var(--ink);border-radius:18px;overflow:hidden;box-shadow:inset 0 0 0 3px #8a5634,0 10px 0 #120a06,0 24px 50px rgba(0,0,0,.55);background:#120a1a}
+.escena canvas{display:block;width:100%;aspect-ratio:16/10}
+.despliegue{display:grid;grid-template-columns:1fr auto;grid-template-areas:'mapa boton' 'cola boton';align-items:center;column-gap:16px;row-gap:2px;padding:12px 18px;background:var(--grano),linear-gradient(#3a2418,#24150e);background-size:200px,cover;border-top:4px solid var(--ink)}
+.despliegue .mapa{grid-area:mapa}.despliegue .cola{grid-area:cola}.despliegue #deploy-btn{grid-area:boton}
+.despliegue .mapa{margin:0;color:#f1e3c0;font-size:.95rem;text-shadow:0 2px 0 var(--ink),0 0 8px #000}
+.despliegue .mapa b{font-family:var(--display);color:var(--gold-l);font-size:1.15rem}
+.despliegue .cola{margin:0;min-height:1.3em;color:var(--chalk-mint);font-family:var(--sketch);font-size:1.05rem;text-shadow:0 0 6px #000,0 2px 0 #000}
+.panel-screen button.grande{font-size:1.45rem;padding:14px 34px;border-radius:14px;letter-spacing:.02em;font-family:var(--display);box-shadow:0 6px 0 var(--ink),inset 0 2px 0 rgba(255,255,255,.35)}
+.panel-screen #deploy-btn[data-state="searching"]:not(:disabled){background:linear-gradient(#d0644f,#9c3a2c)}
+.escuadra .codigo{margin:0 0 10px;color:var(--paper-ink);display:flex;align-items:center;gap:8px}
+.escuadra .codigo b{font:700 1.35rem var(--sketch);letter-spacing:.12em;color:#6b3a1c}
+.escuadra #party-leave{margin-top:10px}
+.escuadra .row{margin-top:6px}
+.escuadra .row input{flex:1;min-width:0;text-transform:uppercase;letter-spacing:.1em}
+.escuadra .list{max-height:240px;overflow:auto}
+.invitacion{position:fixed;left:50%;top:22px;transform:translateX(-50%);z-index:20;background:var(--papel);border:3px solid var(--ink);border-radius:12px;padding:14px 18px;color:var(--paper-ink);box-shadow:0 6px 0 rgba(10,5,3,.7),0 18px 40px rgba(0,0,0,.5);max-width:calc(100% - 32px)}
+.invitacion p{margin:0;font-weight:700;font-size:1.05rem}
+.invitacion .row{margin-top:10px;justify-content:flex-end}
+
+.preparacion{display:grid;grid-template-columns:minmax(260px,.9fr) 1.1fr;gap:16px;align-items:start}
+.vitrina{display:grid;gap:10px}
+.vitrina canvas{display:block;width:100%;aspect-ratio:4/5;border:4px solid var(--ink);border-radius:18px;box-shadow:inset 0 0 0 3px #8a5634,0 10px 0 #120a06}
+.giro{display:flex;gap:8px;justify-content:center;flex-wrap:wrap}
+.escuelas{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.panel-screen button.escuela{display:grid;gap:2px;text-align:left;background:rgba(255,250,235,.55);color:var(--paper-ink);text-shadow:none;border:2px solid var(--ink);border-left:7px solid #b49b72;box-shadow:0 3px 0 var(--ink);padding:8px 10px}
+.panel-screen button.escuela b{font-family:var(--display);font-size:1.2rem;color:#6b3a1c}
+.escuela .titulo{font-size:.85rem;font-style:italic;color:var(--paper-muted);font-weight:500}
+.escuela .rol{font-size:.8rem;font-weight:700;color:var(--paper-ink)}
+.panel-screen button.escuela[aria-pressed="true"]{background:#fbe9b5;border-left-color:var(--leaf-d)}
+.panel-screen button.escuela:disabled{opacity:.6;filter:grayscale(.6)}
+.focos{display:grid;gap:8px;justify-items:start}
+.foco{display:flex;gap:10px;align-items:center;width:100%;padding:8px 10px;border:2px solid rgba(58,36,16,.6);border-radius:8px;background:rgba(255,250,235,.5);color:var(--paper-ink)}
+.foco b{display:block;font-family:var(--display);font-size:1.1rem;color:#6b3a1c}
+.foco span{font-size:.85rem}
+.ico-foco{width:40px;height:40px;flex:none;background:var(--paper-ink);-webkit-mask:var(--ico) center/contain no-repeat;mask:var(--ico) center/contain no-repeat}
+.aspecto{display:grid;gap:8px}
+.selector{display:grid;grid-template-columns:70px auto 1fr auto;align-items:center;gap:8px;color:var(--paper-ink)}
+.selector span{font-weight:700;color:var(--paper-muted)}
+.selector b{text-align:center;font-weight:700}
+.hoja .nota{margin:12px 0 0;font-size:.85rem;color:var(--paper-muted);font-style:italic}
+@media (max-width:900px){
+  .campamento,.preparacion{grid-template-columns:1fr}
+  .despliegue{grid-template-columns:1fr;grid-template-areas:'mapa' 'cola' 'boton';row-gap:6px;padding:12px}
+  .escena canvas{aspect-ratio:4/3}
+  .vitrina canvas{aspect-ratio:1/1;max-height:60vh}
+}

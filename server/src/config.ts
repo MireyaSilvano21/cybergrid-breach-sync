@@ -12,5 +12,11 @@ export const config = {
   minPlayers: Number(process.env.MIN_PLAYERS ?? 1),
   /** Solo pruebas E2E: todos aparecen en la misma llegada para poder probar el combate. */
   sameSpawn: process.env.SAME_SPAWN === '1',
+  /** Emparejamiento: jugadores y equipos mínimos, y cuánto se espera a más escuadras. */
+  queue: {
+    minPlayers: Number(process.env.QUEUE_MIN_PLAYERS ?? 2),
+    minTeams: Number(process.env.QUEUE_MIN_TEAMS ?? 2),
+    waitMs: Number(process.env.QUEUE_WAIT_MS ?? 15000),
+  },
   tokenTtlMs: 1000 * 60 * 60 * 12,
 };
