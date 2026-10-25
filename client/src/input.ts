@@ -1,25 +1,46 @@
-/** Entrada adaptativa: teclado y mouse en PC; joystick virtual y botones en pantallas táctiles. */
+import type { Slot } from '@shared/index';
+
+/** Lanzamiento pedido: en PC apunta al cursor; en móvil, a donde se arrastró el botón (o rápido si solo se tocó). */
+export interface CastRequest { slot: Slot; drag: { dx: number; dy: number; len: number } | null }
+
+/**
+ * Entrada adaptativa (controles estilo Albion):
+ * PC: WASD mover, clic sobre un enemigo para fijarlo (clic al suelo lo suelta), Tab el más cercano,
+ * Q/E/R habilidades hacia el cursor, Espacio cambia de Foco, F usar.
+ * Táctil: joystick a la izquierda; a la derecha Atacar (fija al más cercano), Q/E/R con arrastre para apuntar, cambio de Foco y Usar.
+ */
 export class Input {
   mx = 0; my = 0;
   aimX = 0; aimY = 1;
   attack = false; interact = false; use = false;
   touch = false;
+  /** Posición del mouse en pantalla (para apuntar habilidades). */
+  mouse: { x: number; y: number } | null = null;
+  casts: CastRequest[] = [];
+  swap = false; tab = false; clear = false;
+  /** Clic en pantalla para fijar o soltar objetivo. */
+  click: { x: number; y: number } | null = null;
+  /** Arrastre activo de un botón de habilidad (para dibujar la guía). */
+  aimDrag: { slot: Slot; dx: number; dy: number; len: number } | null = null;
   private keys = new Set<string>();
-  private mouse: { x: number; y: number } | null = null;
   private stick = { x: 0, y: 0 };
 
   constructor(private root: HTMLElement) {
     addEventListener('keydown', (e) => {
       const k = e.key.toLowerCase();
       this.keys.add(k);
-      if (e.key === ' ') this.attack = true;
-      if ((k === 'f' || k === 'e') && !e.repeat) this.use = true;
+      if (e.repeat) return;
+      if (k === 'q' || k === 'e' || k === 'r') this.casts.push({ slot: k.toUpperCase() as Slot, drag: null });
+      if (e.key === ' ') { this.swap = true; e.preventDefault(); }
+      if (e.key === 'Tab') { this.tab = true; e.preventDefault(); }
+      if (e.key === 'Escape') this.clear = true;
+      if (k === 'f') this.use = true;
     });
     addEventListener('keyup', (e) => this.keys.delete(e.key.toLowerCase()));
     addEventListener('blur', () => this.keys.clear());
     const canvas = root.querySelector('canvas')!;
     canvas.addEventListener('mousemove', (e) => { this.mouse = { x: e.clientX, y: e.clientY }; });
-    canvas.addEventListener('mousedown', () => { this.attack = true; });
+    canvas.addEventListener('mousedown', (e) => { if (e.button === 0) this.click = { x: e.clientX, y: e.clientY }; });
     if (matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window) this.enableTouch();
     addEventListener('touchstart', () => this.enableTouch(), { passive: true, once: true });
     this.bindTouch();
@@ -72,6 +93,27 @@ export class Input {
 
     const atk = this.root.querySelector<HTMLElement>('#t-attack')!, use = this.root.querySelector<HTMLElement>('#t-interact')!;
     atk.addEventListener('pointerdown', (e) => { e.preventDefault(); this.attack = true; this.requestFullscreen(); });
+    // Botones de habilidad: tocar lanza rápido; arrastrar muestra la guía y lanza al soltar (volver al botón cancela).
+    for (const b of this.root.querySelectorAll<HTMLElement>('.tbtn.ab')) {
+      const slot = b.dataset.slot as Slot;
+      let pid: number | null = null, sx = 0, sy = 0;
+      b.addEventListener('pointerdown', (e) => { e.preventDefault(); pid = e.pointerId; b.setPointerCapture(pid); sx = e.clientX; sy = e.clientY; this.aimDrag = { slot, dx: 0, dy: 0, len: 0 }; });
+      b.addEventListener('pointermove', (e) => { if (e.pointerId !== pid) return; const dx = e.clientX - sx, dy = e.clientY - sy; this.aimDrag = { slot, dx, dy, len: Math.hypot(dx, dy) }; });
+      const end = (e: PointerEvent, cancel: boolean) => {
+        if (e.pointerId !== pid) return;
+        pid = null;
+        const d = this.aimDrag; this.aimDrag = null;
+        const r = b.getBoundingClientRect(), back = e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom;
+        if (cancel || !d) return;
+        if (d.len > 18 && back) return; // se arrastró y se regresó al botón: cancelar
+        this.casts.push({ slot, drag: d.len > 18 ? d : null });
+      };
+      b.addEventListener('pointerup', (e) => end(e, false));
+      b.addEventListener('pointercancel', (e) => end(e, true));
+      b.addEventListener('contextmenu', (e) => e.preventDefault());
+    }
+    const sw = this.root.querySelector<HTMLElement>('#t-swap');
+    sw?.addEventListener('pointerdown', (e) => { e.preventDefault(); this.swap = true; });
     use.addEventListener('pointerdown', (e) => { e.preventDefault(); this.useHeld = true; this.use = true; });
     use.addEventListener('pointerup', () => { this.useHeld = false; });
     use.addEventListener('pointercancel', () => { this.useHeld = false; });
@@ -111,9 +153,15 @@ export class Input {
     } else if (autoAim) {
       this.aimX = autoAim.x; this.aimY = autoAim.y;
     } else if (l > 0.1) { this.aimX = mx / (l || 1); this.aimY = my / (l || 1); }
-    this.interact = this.keys.has('f') || this.keys.has('e') || this.useHeld;
+    this.interact = this.keys.has('f') || this.useHeld;
   }
 
   consumeAttack() { const a = this.attack; this.attack = false; return a; }
+  /** Entrega y limpia los eventos de este cuadro. */
+  consumeEvents() {
+    const ev = { casts: this.casts, swap: this.swap, tab: this.tab, clear: this.clear, click: this.click };
+    this.casts = []; this.swap = false; this.tab = false; this.clear = false; this.click = null;
+    return ev;
+  }
   consumeUse() { const u = this.use; this.use = false; return u; }
 }

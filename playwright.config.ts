@@ -14,7 +14,7 @@ export default defineConfig({
     command: 'npm run start',
     url: `http://localhost:${PORT}/api/health`,
     reuseExistingServer: !process.env.CI,
-    env: { PORT: String(PORT), MATCH_SCALE: '0.2', MIN_PLAYERS: '1' },
+    env: { PORT: String(PORT), MATCH_SCALE: '0.2', MIN_PLAYERS: '1', SAME_SPAWN: '1' },
     timeout: 30_000,
   },
 });
