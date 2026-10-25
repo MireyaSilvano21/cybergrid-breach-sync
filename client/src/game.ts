@@ -8,8 +8,9 @@ import {
 } from '@shared/index';
 import type { Net } from './net';
 import { Input, type AimSlot, type Drag } from './input';
-import { Sprites, isDeepWall, drawDiagWall, drawThinCracks, drawCover, drawBars, drawBrazier, buildFloorChunk, buildWall, wallKey, buildDecor, drawGrass, glowP, CHUNK, WALL_RISE, INK, type FloorChunk, type Decor } from './art';
+import { Sprites, isDeepWall, drawDiagWall, drawThinCracks, drawCover, drawBars, drawGate, drawBrazier, buildFloorChunk, buildWall, wallKey, buildDecor, drawGrass, glowP, CHUNK, WALL_RISE, INK, type FloorChunk, type Decor } from './art';
 import { drawCharacter } from './rig';
+import { CombatVfx } from './vfx';
 import { drawErrante, drawSusurrante, drawColoso, drawRuneTelegraph, drawZoneTelegraph, shadow as monShadow, PveFx, MONSTER_SCALE, SUSURRANTE_MOUTH, type ErrantePose, type SusurrantePose, type ColosoPose } from './desnombrados';
 
 interface Remote { id: string; name: string; buf: TimedPosition[]; hp: number; ax: number; ay: number; atk: boolean; seen: number; lx: number; ly: number; walk: number; flash: number; foco?: string; slow?: boolean; root?: boolean; invis?: boolean; rev?: boolean; mark?: boolean; team?: number; labelDy?: number; swingAt: number; shotAt: number; castAt: number; mv: number; drawT: number }
@@ -17,7 +18,7 @@ interface Remote { id: string; name: string; buf: TimedPosition[]; hp: number; a
 interface Mon { id: number; k: 'errante' | 'susurrante' | 'coloso'; buf: TimedPosition[]; hp: number; st: string; p: number; ax: number; ay: number; dx: number; seen: number; strikeAt: number; face: number }
 /** Monolito en la instantánea: fase del ritual, equipo, integridad, progreso (%), oleada y descanso (s). */
 interface RitualView { x: number; y: number; ph: string; tm: number; i: number; p: number; w: number; cd: number }
-interface Fx { kind: string; x: number; y: number; dx?: number; dy?: number; r?: number; x2?: number; y2?: number; ang?: number; w?: number; rgb?: string; t0: number; dur: number }
+interface Fx { kind: string; x: number; y: number; dx?: number; dy?: number; r?: number; x2?: number; y2?: number; ang?: number; w?: number; rgb?: string; foco?: string; t0: number; dur: number }
 /** Disparo propio predicho: se dibuja desde que sale, sin esperar al servidor. */
 interface MyShot { n: number; kind: string; x0: number; y0: number; dx: number; dy: number; speed: number; radius: number; range: number; t0: number; seen: boolean; dead: boolean; pierce: boolean }
 type ChestKind = 'forja' | 'sarcofago' | 'ornamentado' | 'relicario';
@@ -184,6 +185,15 @@ export class Game {
   /** PvE: Desnombrados, efectos de sus ataques, rituales, bóvedas abiertas y prueba de Nombre en curso. */
   private mons = new Map<number, Mon>();
   private pve = new PveFx();
+  /** Efectos de ataques y habilidades de los jugadores (barridos, impactos, partículas). */
+  private vfx = new CombatVfx();
+  /** Qué tan abierta está cada puerta de un sentido (se abre cuando alguien pasa cerca). */
+  private gateOpen = new Map<number, number>();
+  /** Posiciones de los demás en el cuadro anterior (para abrir puertas). */
+  private nearPos: { x: number; y: number }[] = [];
+  /** Fases de la partida (segundos) y tiempo actual, para avisar cuándo despiertan los monolitos. */
+  private phaseTimes: Record<string, number> = {};
+  private matchTime = 0;
   private pveT = performance.now();
   private rituals: RitualView[] = [];
   private openedVaults = new Set<number>();
@@ -200,7 +210,8 @@ export class Game {
   private offs: (() => void)[] = [];
   private el: Record<string, HTMLElement>;
 
-  constructor(private root: HTMLElement, private net: Net, start: { seed: number; players: number; x: number; y: number; you?: string; team?: number }) {
+  constructor(private root: HTMLElement, private net: Net, start: { seed: number; players: number; x: number; y: number; you?: string; team?: number; phases?: Record<string, number> }) {
+    this.phaseTimes = start.phases ?? {};
     const canvas = root.querySelector('canvas')!;
     // Lienzo opaco (el navegador no mezcla con lo de atrás) y de baja latencia donde se soporte.
     // Lienzo opaco, pero sincronizado con la pantalla: el modo desynchronized (baja latencia) dibuja
@@ -232,6 +243,7 @@ export class Game {
     this.offs.push(net.on('hit', (m) => {
       const now = performance.now();
       this.floaters.push({ x: m.x, y: m.y, text: `-${m.dmg}`, t0: now, id: m.target });
+      this.vfx.hit(m.x, m.y, m.x - this.me.x, m.y - this.me.y, FOCOS[this.build.focos[this.foco]]?.rgb ?? '255,220,150', m.dmg);
       const r = this.remotes.get(m.target); if (r) r.flash = now;
       const a0 = Math.atan2(m.y - this.me.y, m.x - this.me.x);
       for (let i = 0; i < 14; i++) { const a = a0 + (Math.random() - 0.5) * 1.8, v = 180 + Math.random() * 300; this.sparks.push({ x: m.x, y: m.y - 30, vx: Math.cos(a) * v, vy: Math.sin(a) * v, l: 1 }); }
@@ -381,6 +393,7 @@ export class Game {
     this.map.sealsOpen.heart = m.heart === 'abierta';
     this.rituals = m.rit ?? [];
     this.phaseId = m.phase;
+    this.matchTime = m.time ?? this.matchTime;
     this.syncMonsters(m.mons ?? [], now);
     this.nameTest = m.you.nt ? { el: m.you.nt.el, z: m.you.nt.z, at: now } : null;
     this.chests = m.chests ?? []; this.remains = m.remains ?? [];
@@ -612,7 +625,7 @@ export class Game {
     }
     for (let i = this.embers.length - 1; i >= 0; i--) { const p = this.embers[i]; p.x += p.vx * dt; p.y += p.vy * dt; p.l -= dt * 0.7; if (p.l <= 0) this.embers.splice(i, 1); }
     for (let i = this.sparks.length - 1; i >= 0; i--) { const p = this.sparks[i]; p.x += p.vx * dt; p.y += p.vy * dt; p.vx *= 0.9; p.vy *= 0.9; p.l -= dt * 2.4; if (p.l <= 0) this.sparks.splice(i, 1); }
-    this.shake = Math.max(this.shake, this.pve.shake); this.pve.shake = 0;
+    this.shake = Math.max(this.shake, this.pve.shake, this.vfx.shake); this.pve.shake = 0; this.vfx.shake = 0;
     this.shake *= Math.pow(0.002, dt);
   }
 
@@ -649,7 +662,7 @@ export class Game {
       else if (isDiag(tile)) list.push({ y: ty * T + T, draw: () => drawDiagWall(g, tile, tx, ty, DIAGS) });
       else if (tile === COVER) list.push({ y: ty * T + T - 8, draw: () => drawCover(g, tx, ty, (tx * 7 + ty * 13) & 7) });
       else if (tile === SEAL_VAULT && !map.sealsOpen.vault || tile === SEAL_HEART && !map.sealsOpen.heart) list.push({ y: ty * T + T - 4, draw: () => drawBars(g, tx, ty, true) });
-      else if (isGate(tile)) list.push({ y: ty * T + T - 4, draw: () => drawBars(g, tx, ty, false, GATE_DIR[tile]) });
+      else if (isGate(tile)) { const o = this.gateOpenness(tx, ty, this.nearPos); list.push({ y: ty * T + T - 4, draw: () => drawGate(g, tx, ty, GATE_DIR[tile], o, sec) }); }
     }
     // Objetos de las plantillas: hitos (braseros grandes), braseros pequeños y pilares Desnombrados.
     for (const pr of map.props) {
@@ -666,6 +679,7 @@ export class Game {
       r.mv += ((moved > 0.4 ? 1 : 0) - r.mv) * Math.min(1, fdt * 10); r.walk += fdt * 9 * r.mv; r.lx = p.x; r.ly = p.y;
       remotesNow.push({ r, x: p.x, y: p.y }); pushers.push(p);
     }
+    this.nearPos = remotesNow;
     const art = Game.art!;
     for (const d of this.decor) {
       if (d.x < v.x0 || d.x > v.x1 || d.y < v.y0 || d.y > v.y1 + 60) continue;
@@ -694,6 +708,7 @@ export class Game {
     this.drawGroundMarks(remotesNow, sec);
     this.drawTelegraphs(monsNow, now, sec);
     this.pve.drawGround(g);
+    this.vfx.drawGround(g);
     for (const o of list) o.draw();
 
     P?.push(performance.now());
@@ -755,6 +770,7 @@ export class Game {
     g.globalCompositeOperation = 'source-over';
     const pdt = Math.min(0.05, (now - this.pveT) / 1000); this.pveT = now;
     this.pve.draw(g, sec, pdt);
+    this.vfx.draw(g, pdt);
     this.drawAimIndicator();
 
     P?.push(performance.now());
@@ -948,7 +964,7 @@ export class Game {
     const aim = clampAim(this.me, p, b.shape.range);
     this.me.ax = aim.dirX; this.me.ay = aim.dirY;
     if (b.delivery === 'proyectil') { this.shotAt = now; this.predictProjectiles(n, aim.dirX, aim.dirY, b.projectile!, b.shape.range, foco.id); }
-    else { this.swingAt = now; this.addFx(b.shape.type === 'linea' ? 'estocada' : 'arco', this.me.x, this.me.y, { dx: aim.dirX, dy: aim.dirY, r: b.shape.range * TILE, ang: b.shape.angle, w: (b.shape.width ?? 0) * TILE, rgb: foco.rgb }); }
+    else { this.swingAt = now; this.addFx(b.shape.type === 'linea' ? 'estocada' : 'arco', this.me.x, this.me.y, { dx: aim.dirX, dy: aim.dirY, r: b.shape.range * TILE, ang: b.shape.angle, w: (b.shape.width ?? 0) * TILE, rgb: foco.rgb, foco: foco.id }); }
   }
 
   /** Habilidad: se predice la recarga y el efecto (embestida y parpadeo incluidos); el servidor confirma. */
@@ -987,6 +1003,7 @@ export class Game {
   /** Proyectiles propios dibujados al instante; el servidor decide si tocan a alguien. */
   private predictProjectiles(n: number, dirX: number, dirY: number, def: ProjectileDef, rangeTiles: number, kind: string) {
     const now = performance.now();
+    this.vfx.muzzle(this.me.x + dirX * 24, this.me.y - 22 + dirY * 24, dirX, dirY, this.rgbOf(kind), !FOCOS[kind]);
     for (const [dx, dy] of fanDirections(dirX, dirY, def.count ?? 1, ((def.spreadDeg ?? 0) * Math.PI) / 180)) {
       this.myShots.push({ n, kind, x0: this.me.x + dx * 20, y0: this.me.y - 22 + dy * 20, dx, dy, speed: def.speed, radius: def.radius, range: rangeTiles * TILE, t0: now, seen: false, dead: false, pierce: !!def.pierce });
     }
@@ -996,6 +1013,29 @@ export class Game {
     const dur = kind === 'arco' || kind === 'estocada' ? 240 : kind === 'escuchar' || kind === 'portal-shift' ? 900 : 520;
     this.fxs.push({ kind, x, y, ...o, t0: performance.now(), dur });
     if (this.fxs.length > 80) this.fxs.shift();
+    this.spawnVfx(kind, x, y, o);
+  }
+
+  /** Efecto vistoso de cada ataque o habilidad, encima de la forma que marca su área real. */
+  private spawnVfx(kind: string, x: number, y: number, o: Partial<Fx>) {
+    const rgb = o.rgb ?? this.rgbOf(kind), dx = o.dx ?? 1, dy = o.dy ?? 0, r = o.r ?? 80;
+    const foco = o.foco ?? Object.values(FOCOS).find((f) => f.rgb === rgb)?.id ?? '';
+    const v = this.vfx;
+    switch (kind) {
+      case 'arco': return v.slash(x, y, dx, dy, r, o.ang ?? 90, rgb, foco);
+      case 'estocada': return v.thrust(x, y, dx, dy, r, o.w ?? 30, rgb);
+      case 'llamar_piedra': return v.dash(x, y, dx, dy, r, rgb, false);
+      case 'corte': return v.dash(x, y, dx, dy, r, rgb, true);
+      case 'paso': if (o.x2 != null && o.y2 != null) v.blink(x, y, o.x2, o.y2, rgb); return;
+      case 'temblor': return v.groundHit(x, y, r, rgb, true);
+      case 'grieta': return v.rubyRift(x, y, r);
+      case 'lluvia': return v.arrowRain(x, y, r);
+      case 'hilo_vida': case 'vinculo': return v.heal(x, y, r, rgb);
+      case 'velo': return v.veil(x, y, rgb);
+      case 'escuchar': return v.wind(x, y, rgb);
+      case 'rafaga': return v.gust(x, y, dx, dy, r, o.ang ?? 70, rgb);
+      case 'siega': return v.spin(x, y, r, rgb);
+    }
   }
 
   /** Ataque básico de otro jugador: la animación (sus proyectiles llegan en la instantánea). */
@@ -1020,6 +1060,8 @@ export class Game {
     const seen = new Set<number>(), mine = new Set<number>();
     for (const p of m.projectiles ?? []) {
       if (p.o === this.myId) { if (p.n != null) mine.add(p.n); continue; }
+      // Proyectil nuevo de otro jugador: fogonazo donde sale.
+      if (!this.projectiles.has(p.id)) { const sp = Math.hypot(p.vx, p.vy) || 1; this.vfx.muzzle(p.x, p.y, p.vx / sp, p.vy / sp, this.rgbOf(p.k ?? ''), false); }
       this.projectiles.set(p.id, { x: p.x, y: p.y, vx: p.vx, vy: p.vy, t: now, k: p.k, r: p.r }); seen.add(p.id);
     }
     for (const id of this.projectiles.keys()) if (!seen.has(id)) this.projectiles.delete(id);
@@ -1077,11 +1119,40 @@ export class Game {
       g.fillStyle = `rgba(${rgb},.55)`; g.beginPath(); g.ellipse(x, y + 22, radius * 1.2, radius * 0.5, Math.atan2(vy, vx), 0, 6.283); g.fill();
       return;
     }
+    // Estela que se afina hacia atrás (más larga cuanto más rápido va) y núcleo brillante.
+    const a0 = Math.atan2(vy, vx), L = Math.max(28, Math.min(120, sp * 0.075)), w = Math.max(6, radius * 1.3), t = performance.now() / 1000;
     const s = Math.max(22, radius * 3);
-    g.globalAlpha = 0.95; g.drawImage(art.dot.white, x - s / 2, y - s / 2, s, s);
-    g.globalAlpha = 1; g.strokeStyle = `rgba(${rgb},.85)`; g.lineWidth = Math.max(3, radius * 0.6); g.lineCap = 'round';
-    g.beginPath(); g.moveTo(x, y); g.lineTo(x - (vx / sp) * radius * 4, y - (vy / sp) * radius * 4); g.stroke();
-    g.fillStyle = `rgb(${rgb})`; g.beginPath(); g.arc(x, y, Math.max(4, radius * 0.55), 0, 6.283); g.fill();
+    g.globalAlpha = 0.9; g.drawImage(art.dot.white, x - s / 2, y - s / 2, s, s); g.globalAlpha = 1;
+    g.save(); g.translate(x, y); g.rotate(a0);
+    const tr = g.createLinearGradient(-L, 0, 0, 0); tr.addColorStop(0, `rgba(${rgb},0)`); tr.addColorStop(1, `rgba(${rgb},.85)`);
+    g.fillStyle = tr; g.beginPath(); g.moveTo(0, -w / 2); g.quadraticCurveTo(-L * 0.5, -w * 0.35, -L, 0); g.quadraticCurveTo(-L * 0.5, w * 0.35, 0, w / 2); g.closePath(); g.fill();
+    g.fillStyle = `rgba(255,252,240,.95)`;
+    switch (kind) {
+      case 'arco': case 'lluvia': // flecha: vara clara con punta
+        g.fillRect(-18, -1.2, 18, 2.4); g.beginPath(); g.moveTo(8, 0); g.lineTo(-1, -4); g.lineTo(-1, 4); g.closePath(); g.fill(); break;
+      case 'revolver': // bala alargada
+        g.beginPath(); g.ellipse(0, 0, 9, 2.6, 0, 0, 6.283); g.fill(); break;
+      case 'daga': case 'abanico': // dagas que giran
+        g.rotate(t * 25); g.fillStyle = `rgba(255,150,150,.95)`; g.beginPath(); g.moveTo(9, 0); g.lineTo(-5, -3); g.lineTo(-5, 3); g.closePath(); g.fill(); break;
+      case 'cetro_rubi': // esquirla de rubí que gira
+        g.rotate(t * 12); g.fillStyle = `rgba(255,120,130,.95)`; g.beginPath(); g.moveTo(0, -7); g.lineTo(5, 0); g.lineTo(0, 7); g.lineTo(-5, 0); g.closePath(); g.fill(); break;
+      case 'cetro_lunar': { // esfera con media luna
+        g.beginPath(); g.arc(0, 0, w * 0.55, 0, 6.283); g.fill();
+        g.fillStyle = `rgba(${rgb},.9)`; g.beginPath(); g.arc(w * 0.18, -w * 0.1, w * 0.45, 0, 6.283); g.fill(); break;
+      }
+      case 'llamarada': // lengua de fuego ancha que tiembla
+        for (let i = 0; i < 3; i++) { const fy = Math.sin(t * 20 + i * 2) * w * 0.25; g.fillStyle = i ? `rgba(255,${180 + i * 30},80,.8)` : 'rgba(255,250,220,.95)'; g.beginPath(); g.ellipse(-i * 8, fy, w * (0.6 - i * 0.12), w * (0.4 - i * 0.08), 0, 0, 6.283); g.fill(); }
+        break;
+      case 'lanzamiento': // la lanza completa en vuelo
+        g.fillRect(-46, -1.6, 46, 3.2); g.fillStyle = `rgba(${rgb},1)`; g.beginPath(); g.moveTo(14, 0); g.lineTo(0, -5); g.lineTo(0, 5); g.closePath(); g.fill(); break;
+      case 'atadura': // hilo ondulante
+        g.strokeStyle = `rgba(${rgb},.95)`; g.lineWidth = 2.5; g.beginPath();
+        for (let i = 0; i <= 10; i++) { const xx = -i * 4; g.lineTo(xx, Math.sin(t * 30 + i) * 4); } g.stroke();
+        g.beginPath(); g.arc(0, 0, 4, 0, 6.283); g.fill(); break;
+      default:
+        g.beginPath(); g.arc(0, 0, Math.max(4, radius * 0.55), 0, 6.283); g.fill();
+    }
+    g.restore();
   }
 
   /** Proyectiles y efectos de habilidades (en modo aditivo, brillan sobre la oscuridad). */
@@ -1109,11 +1180,8 @@ export class Game {
         g.strokeStyle = `rgba(200,150,255,${a * 0.9})`; g.lineWidth = 10 * a + 2;
         g.beginPath(); g.arc(f.x, f.y - 60, R, 0, 6.283); g.stroke();
         g.globalAlpha = a; g.drawImage(art.dot.violet, f.x - R, f.y - 60 - R, R * 2, R * 2); g.globalAlpha = 1;
-      } else if (f.kind === 'estocada') {
-        // Estocada: una franja recta que sale y se desvanece.
-        const L = (f.r ?? 150) * Math.min(1, k * 2.5), w = Math.max(14, f.w ?? 30);
-        g.strokeStyle = `rgba(${rgb},${a * 0.85})`; g.lineWidth = w * a + 2; g.lineCap = 'round';
-        g.beginPath(); g.moveTo(f.x, f.y - 16); g.lineTo(f.x + (f.dx ?? 0) * L, f.y - 16 + (f.dy ?? 0) * L); g.stroke();
+      } else if (f.kind === 'estocada' || f.kind === 'arco') {
+        // Los dibuja CombatVfx (barrido y estocada).
       } else if (def?.delivery === 'parpadeo' && f.x2 != null && f.y2 != null) {
         for (const [px, py] of [[f.x, f.y], [f.x2, f.y2]]) { g.globalAlpha = a; g.drawImage(art.dot.violet, px - 50, py - 70, 100, 100); }
         g.globalAlpha = 1;
@@ -1245,6 +1313,16 @@ export class Game {
   }
 
   /** Indicación junto al cofre o los Restos más cercanos dentro del alcance. */
+  /** Apertura de una puerta (0 a 1): se abre al acercarse alguien y se cierra sola, suave. */
+  private gateOpenness(tx: number, ty: number, remotes: { x: number; y: number }[]) {
+    const T = TILE, cx = tx * T + T / 2, cy = ty * T + T / 2, key = ty * this.map.width + tx;
+    let near = Math.hypot(this.me.x - cx, this.me.y - cy);
+    for (const r of remotes) near = Math.min(near, Math.hypot(r.x - cx, r.y - cy));
+    const target = near < T * 1.1 ? 1 : 0, cur = this.gateOpen.get(key) ?? 0, next = cur + (target - cur) * 0.18;
+    this.gateOpen.set(key, next);
+    return next;
+  }
+
   /** Imagen del monolito según su ritual. */
   private monolithKey(i: number) {
     const ph = this.rituals[i]?.ph;
@@ -1361,16 +1439,23 @@ export class Game {
       if (d <= bd) { bd = d; best = { x: r.x, y: r.y, top: 50, text: `saquear a ${r.owner}` }; }
     }
     // Monolitos: despertarlo (desde la Primera Llamada) o hacer la prueba de Nombre si se debilita.
+    let noKey = false;
     if (!best) {
       const awake = ['primera-llamada', 'segunda-llamada', 'cierre-portal-1', 'desnombrar'].includes(this.phaseId);
       for (const r of this.rituals) {
         if (Math.hypot(r.x - this.me.x, r.y - this.me.y) > RITUAL.range) continue;
         if (r.ph === 'dormido' && awake) best = { x: r.x, y: r.y, top: 170, text: 'mantén para despertar el monolito' };
-        else if (r.ph === 'reparar' && r.tm === this.myTeam && !this.nameTest) best = { x: r.x, y: r.y, top: 170, text: 'prueba de Nombre' };
+        else if (r.ph === 'dormido' && this.phaseId === 'despertar' || r.ph === 'dormido' && this.phaseId === 'primer-silencio') {
+          // Antes de la Primera Llamada el monolito duerme: se avisa cuánto falta.
+          const left = Math.max(0, Math.ceil((this.phaseTimes.primeraLlamada ?? 0) - this.matchTime));
+          best = { x: r.x, y: r.y, top: 170, text: `el monolito despierta en la Primera Llamada · ${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')}` };
+          noKey = true;
+        } else if (r.ph === 'reparar' && r.tm === this.myTeam && !this.nameTest) best = { x: r.x, y: r.y, top: 170, text: 'prueba de Nombre' };
+        else if (r.ph === 'roto') { best = { x: r.x, y: r.y, top: 170, text: `el monolito descansa · ${r.cd} s` }; noKey = true; }
       }
     }
     if (!best) return;
-    const g = this.ctx, label = `${this.input.touch ? 'Usar' : 'F'} · ${best.text}`;
+    const g = this.ctx, label = noKey ? best.text : `${this.input.touch ? 'Usar' : 'F'} · ${best.text}`;
     g.font = '500 15px "Alegreya Sans", sans-serif'; g.textAlign = 'center';
     const w = g.measureText(label).width + 20, y = best.y - best.top - 8 + Math.sin(t / 250) * 2;
     g.fillStyle = 'rgba(20,10,22,.9)'; g.beginPath(); g.roundRect(best.x - w / 2, y - 18, w, 26, 6); g.fill();

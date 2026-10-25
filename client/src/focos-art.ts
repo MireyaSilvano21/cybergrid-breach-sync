@@ -13,6 +13,8 @@ interface Meta {
   bottom: number;
   /** Largo del arma respecto a la altura del personaje. */
   len: number;
+  /** El PNG mira al revés de como se sostiene (el Arco trae la cuerda hacia afuera). */
+  flip?: boolean;
 }
 
 const META: Record<string, Meta> = {
@@ -25,13 +27,13 @@ const META: Record<string, Meta> = {
   guadana: { grip: [339, 631], top: 23, bottom: 741, len: 1.0 },
   martillo: { grip: [186, 574], top: 53, bottom: 725, len: 0.82 },
   cetro_rubi: { grip: [126, 610], top: 12, bottom: 755, len: 0.9 },
-  arco: { grip: [204, 382], top: 13, bottom: 755, len: 0.86 },
+  arco: { grip: [204, 382], top: 13, bottom: 755, len: 0.86, flip: true },
 };
 
 /** Alto en píxeles al que se reduce cada arma por cada 1.0 de largo (≈ el doble de lo que ocupa en pantalla). */
 const PX_PER_LEN = 300;
 
-export interface FocoArt { base: HTMLCanvasElement; glow: HTMLCanvasElement | null; gx: number; gy: number; px: number; len: number }
+export interface FocoArt { base: HTMLCanvasElement; glow: HTMLCanvasElement | null; gx: number; gy: number; px: number; len: number; flip: boolean }
 const cache = new Map<string, FocoArt | 'cargando' | 'error'>();
 
 function shrink(img: HTMLImageElement, k: number) {
@@ -56,7 +58,7 @@ export function focoArt(id: string): FocoArt | null {
   cache.set(id, 'cargando');
   const k = (m.len * PX_PER_LEN) / (m.bottom - m.top);
   Promise.all([load(`/assets/focos/foco_${id}.png`), load(`/assets/focos/foco_${id}_brillo.png`).catch(() => null)])
-    .then(([b, gl]) => cache.set(id, { base: shrink(b, k), glow: gl ? shrink(gl, k) : null, gx: m.grip[0] * k, gy: m.grip[1] * k, px: m.len * PX_PER_LEN, len: m.len }))
+    .then(([b, gl]) => cache.set(id, { base: shrink(b, k), glow: gl ? shrink(gl, k) : null, gx: m.grip[0] * k, gy: m.grip[1] * k, px: m.len * PX_PER_LEN, len: m.len, flip: !!m.flip }))
     .catch(() => cache.set(id, 'error'));
   return null;
 }
@@ -69,7 +71,8 @@ export function drawFocoArt(g: Ctx, a: FocoArt, x: number, y: number, H: number,
   const s = (a.len * H) / a.px;
   g.save();
   g.translate(x, y);
-  g.scale(mirror ? -s : s, s);
+  // El arco se refleja para que la cuerda quede hacia el cuerpo y la curva hacia el blanco.
+  g.scale(mirror !== a.flip ? -s : s, s);
   g.drawImage(a.base, -a.gx, -a.gy);
   if (a.glow) {
     // La capa de brillo suma luz encima (emisión): runas, gemas y energía resaltan en lo oscuro.
