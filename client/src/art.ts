@@ -346,6 +346,48 @@ export function drawBars(g: Ctx, tx: number, ty: number, gold: boolean, dir?: [n
   }
 }
 
+/**
+ * Puerta de un solo sentido: dos postes de piedra y hojas de madera con bandas de hierro que se
+ * abren hacia donde se puede cruzar (open de 0 a 1, según quién está cerca). La runa del piso
+ * marca la dirección. Si se cruza de norte a sur o de sur a norte, la puerta atraviesa la casilla
+ * de lado a lado; si se cruza de este a oeste, se ve de canto, a lo largo de la casilla.
+ */
+export function drawGate(g: Ctx, tx: number, ty: number, dir: [number, number], open: number, sec: number) {
+  const T = TILE, x = tx * T, y = ty * T, H = 46, th = open * 1.25;
+  const wood = '#5a3a26', woodD = '#3f2819', iron = '#3a3c44';
+  // Runa en el piso hacia donde se cruza (late suave).
+  const cx = x + T / 2 + dir[0] * 18, cy = y + T / 2 + dir[1] * 18 + 8, px = -dir[1], py = dir[0], pulse = 0.65 + 0.35 * Math.sin(sec * 3);
+  poly(g, [[cx + dir[0] * 11, cy + dir[1] * 11], [cx + px * 9 - dir[0] * 5, cy + py * 9 - dir[1] * 5], [cx + px * 3 - dir[0] * 2, cy + py * 3 - dir[1] * 2], [cx + px * 3 - dir[0] * 11, cy + py * 3 - dir[1] * 11], [cx - px * 3 - dir[0] * 11, cy - py * 3 - dir[1] * 11], [cx - px * 3 - dir[0] * 2, cy - py * 3 - dir[1] * 2], [cx - px * 9 - dir[0] * 5, cy - py * 9 - dir[1] * 5]]);
+  g.fillStyle = `rgba(150,225,255,${0.55 * pulse})`; g.fill();
+  const post = (bx: number, by: number) => {
+    poly(g, [[bx - 6, by], [bx + 6, by], [bx + 6, by - H - 10], [bx - 6, by - H - 10]]); g.fillStyle = '#5b5566'; g.fill(); g.strokeStyle = INK; g.lineWidth = 2.4; g.stroke();
+    poly(g, [[bx - 8, by - H - 10], [bx + 8, by - H - 10], [bx + 7, by - H - 17], [bx - 7, by - H - 17]]); g.fillStyle = '#6d6778'; g.fill(); g.stroke();
+    strokeP(g, [[bx - 4, by - H * 0.45], [bx + 3, by - H * 0.5]], '#46404f', 1.6);
+  };
+  const leaf = (pts: Pt[], seed: number) => {
+    poly(g, pts); g.fillStyle = wood; g.fill(); g.strokeStyle = INK; g.lineWidth = 2.2; g.stroke();
+    // Tablas, dos bandas de hierro con remaches y la punta de las tablas.
+    const [a, b, c2, d] = pts, lerp = (p: Pt, q: Pt, k: number): Pt => [p[0] + (q[0] - p[0]) * k, p[1] + (q[1] - p[1]) * k];
+    for (const k of [0.33, 0.66]) strokeP(g, [lerp(a, b, k), lerp(d, c2, k)], woodD, 1.4);
+    for (const k of [0.22, 0.72]) { strokeP(g, [lerp(a, d, k), lerp(b, c2, k)], iron, 4); const r = lerp(lerp(a, d, k), lerp(b, c2, k), 0.5 + 0.1 * Math.sin(seed)); g.fillStyle = '#b08a48'; g.beginPath(); g.arc(r[0], r[1], 1.8, 0, 6.283); g.fill(); }
+  };
+  if (dir[0] === 0) {
+    // Se cruza de norte a sur: la puerta va de un poste al otro.
+    const by = y + T - 6, lx = x + 8, rx = x + T - 8, L = (rx - lx) / 2, sw = Math.max(0.25, Math.cos(th)), lift = Math.sin(th) * 14 * dir[1];
+    post(lx, by + 2); post(rx, by + 2);
+    leaf([[lx + 6, by], [lx + 6 + L * sw - 5, by + lift], [lx + 6 + L * sw - 5, by + lift - H], [lx + 6, by - H]], 1);
+    leaf([[rx - 6, by], [rx - 6 - L * sw + 5, by + lift], [rx - 6 - L * sw + 5, by + lift - H], [rx - 6, by - H]], 2);
+  } else {
+    // Se cruza de este a oeste: la puerta se ve de canto, a lo largo de la casilla.
+    const bx = x + T / 2, top = y + 10, bot = y + T - 4, L = (bot - top) / 2, out = (Math.sin(th) * L + 5) * dir[0], sh = Math.cos(th) * L;
+    // De canto la hoja cerrada se ve como una tabla gruesa (5 px), no como una línea.
+    post(bx, top); 
+    leaf([[bx, top], [bx + out, top + sh], [bx + out, top + sh - H], [bx, top - H]], 3);
+    leaf([[bx, bot], [bx + out, bot - sh], [bx + out, bot - sh - H], [bx, bot - H]], 4);
+    post(bx, bot + 2);
+  }
+}
+
 /** Brasero de pie: grande para los hitos de cruce y llegada, pequeño en salas. */
 export function drawBrazier(g: Ctx, x: number, y: number, big: boolean, flame: HTMLImageElement | undefined, sec: number, ph: number) {
   const s = big ? 1.7 : 1;
