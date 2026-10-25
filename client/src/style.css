@@ -226,3 +226,27 @@ button:focus-visible,input:focus-visible{outline:3px solid var(--gold-l);outline
   .hojas{width:92px;height:66px}
   .hojas.tl{top:-20px;left:-12px}.hojas.tr{top:-20px;right:-12px}.hojas.br{bottom:-20px;right:-12px}
 }
+
+/* Equipos en la sala: cuatro tarjetas con el color de cada equipo. */
+.pagina .ayuda{margin:6px 0 10px;color:var(--paper-muted);font-size:.92rem}
+.equipos{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+@media (max-width:520px){.equipos{grid-template-columns:1fr}}
+.equipo{border:2px solid rgba(58,36,16,.55);border-left:7px solid var(--team);border-radius:8px;background:rgba(255,250,235,.4);padding:8px 10px}
+.equipo.mio{background:rgba(255,250,235,.75);box-shadow:0 0 0 3px var(--team)}
+.equipo header{display:flex;align-items:center;gap:8px;min-height:30px}
+.equipo header b{font-family:var(--display);font-size:1.15rem;color:var(--paper-ink)}
+.equipo .chip{width:14px;height:14px;border-radius:50%;background:var(--team);border:2px solid var(--ink);flex:none}
+.equipo .cupo{color:var(--paper-muted);font-weight:700;font-size:.85rem;margin-right:auto}
+.pagina .equipo button.mini{padding:3px 10px;font-size:.82rem;border-width:2px;box-shadow:0 3px 0 var(--ink)}
+.pagina .equipo .list{margin-top:6px;gap:5px}
+.pagina .equipo .list li{padding:5px 9px;font-size:.95rem;background:rgba(255,250,235,.6)}
+.pagina .equipo .list li.libre{justify-content:center;font-style:italic;color:var(--paper-muted);border-style:dashed;background:none}
+.cofre .list li.res-equipo{margin-top:6px;border-left:7px solid var(--team);font-weight:700;color:var(--team);background:#241626}
+
+/* Compañeros en el HUD: nombre y vida en tiza con el color del equipo. */
+.aliados{display:grid;gap:3px;margin-top:4px;padding-left:38px}
+.aliado{display:grid;grid-template-columns:auto 90px;align-items:center;gap:8px;font-size:.85rem;color:var(--chalk);font-family:var(--sketch);text-shadow:0 0 4px #000}
+.aliado .ali-hp{height:8px;background:rgba(244,239,228,.18);-webkit-mask:var(--tiza) 0 0/256px;mask:var(--tiza) 0 0/256px}
+.aliado .ali-hp i{display:block;height:100%;background:var(--team)}
+.aliado[data-estado="cayo"]{opacity:.5;text-decoration:line-through}
+.aliado[data-estado="escapo"]{color:var(--chalk-mint)}

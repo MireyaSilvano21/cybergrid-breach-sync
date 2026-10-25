@@ -112,6 +112,7 @@ export function createGameServer(): { app: express.Express; server: Server; room
         case 'join': { const err = rooms.join(conn, m.roomId, m.password); if (err) conn.send({ type: 'error', message: err }); return; }
         case 'leave': return rooms.leave(conn.id);
         case 'ready': return rooms.setReady(conn.id, m.ready);
+        case 'team': { const err = rooms.setTeam(conn.id, m.team); if (err) conn.send({ type: 'error', message: err }); return; }
         case 'input': return rooms.input(conn.id, m);
       }
     });

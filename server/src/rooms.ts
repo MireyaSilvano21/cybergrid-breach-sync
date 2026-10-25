@@ -1,9 +1,9 @@
 import { randomUUID } from 'node:crypto';
-import { MAX_PLAYERS, type InputMessage, type MatchRecord } from '@shared/index';
+import { MAX_PLAYERS, autoTeam, canJoinTeam, type InputMessage, type MatchRecord } from '@shared/index';
 import { config } from './config';
 import { Match, type Conn } from './game';
 
-interface Member { conn: Conn; ready: boolean }
+interface Member { conn: Conn; ready: boolean; team: number }
 export interface Room {
   id: string; name: string; password?: string; host: string;
   members: Map<string, Member>;
@@ -35,7 +35,10 @@ export class RoomManager {
     if (room.state !== 'lobby') return 'La partida ya empezó.';
     if (room.members.size >= MAX_PLAYERS) return 'La sala está llena.';
     this.leave(conn.id);
-    room.members.set(conn.id, { conn, ready: false });
+    // Entra al equipo con menos jugadores: dos personas que no eligen quedan como rivales.
+    const team = autoTeam([...room.members.values()].map((m) => m.team));
+    if (team === null) return 'La sala está llena.';
+    room.members.set(conn.id, { conn, ready: false, team });
     this.where.set(conn.id, room.id);
     this.broadcastLobby(room);
     return null;
@@ -63,6 +66,19 @@ export class RoomManager {
     if (members.length >= config.minPlayers && members.every((x) => x.ready)) this.startMatch(room);
   }
 
+  /** Cambio de equipo en el lobby: máximo 3 por equipo; quita el "Listo" para no arrancar por accidente. */
+  setTeam(connId: string, team: number): string | null {
+    const room = this.roomOf(connId);
+    const m = room?.members.get(connId);
+    if (!room || !m || room.state !== 'lobby') return null;
+    if (m.team === team) return null;
+    const others = [...room.members.values()].filter((x) => x !== m).map((x) => x.team);
+    if (!canJoinTeam(others, team)) return 'Ese equipo ya está completo.';
+    m.team = team; m.ready = false;
+    this.broadcastLobby(room);
+    return null;
+  }
+
   input(connId: string, msg: InputMessage) { this.roomOf(connId)?.match?.handleInput(connId, msg); }
 
   roomOf(connId: string): Room | undefined {
@@ -72,7 +88,7 @@ export class RoomManager {
 
   private startMatch(room: Room) {
     room.state = 'playing';
-    room.match = new Match([...room.members.values()].map((m) => m.conn), (record) => {
+    room.match = new Match([...room.members.values()].map((m) => ({ conn: m.conn, team: m.team })), (record) => {
       this.onMatchEnd(record);
       room.state = 'lobby';
       room.match = null;
@@ -87,7 +103,7 @@ export class RoomManager {
     const msg = {
       type: 'lobby',
       room: { id: room.id, name: room.name, locked: !!room.password, state: room.state },
-      players: [...room.members.values()].map((m) => ({ id: m.conn.id, name: m.conn.name, ready: m.ready })),
+      players: [...room.members.values()].map((m) => ({ id: m.conn.id, name: m.conn.name, ready: m.ready, team: m.team })),
     };
     for (const m of room.members.values()) m.conn.send(msg);
   }

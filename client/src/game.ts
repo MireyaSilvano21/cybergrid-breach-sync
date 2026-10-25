@@ -2,6 +2,7 @@ import {
   TILE, PLAYER, INTERP_DELAY_MS, TICK_MS, WALL, THIN, COVER, SEAL_VAULT, SEAL_HEART, DIAG_TL, DIAG_TR, DIAG_BL, DIAG_BR, GATE_DIR, isDiag, isGate, ITEMS, createJitter, updateJitter, adaptiveDelay, viewScale, VISION_RADIUS, INTERACT_RANGE, generateValidMap, sampleBuffer, stepMove, replayMoves, pendingAfterAck, type MoveCmd, createRng, itemValue,
   FOCOS, DEFAULT_BUILD, abilityFor, inBasicRange, GCD_MS, SWAP_MS, DASH_S, DASH_MUL, type Build, type Slot,
   animate, appearanceFor, BODIES, type Appearance, type AnimInput, type ActionKind, type View,
+  TEAMS,
   type GridMap, type TimedPosition,
 } from '@shared/index';
 import type { Net } from './net';
@@ -9,7 +10,7 @@ import { Input, type CastRequest } from './input';
 import { Sprites, isDeepWall, drawDiagWall, drawThinCracks, drawCover, drawBars, drawBrazier, buildFloorChunk, buildWall, wallKey, buildDecor, drawGrass, glowP, CHUNK, WALL_RISE, INK, type FloorChunk, type Decor } from './art';
 import { drawCharacter } from './rig';
 
-interface Remote { id: string; name: string; buf: TimedPosition[]; hp: number; ax: number; ay: number; atk: boolean; seen: number; lx: number; ly: number; walk: number; flash: number; tg?: string | null; foco?: string; slow?: boolean; swingAt: number; shotAt: number; castAt: number; mv: number; drawT: number }
+interface Remote { id: string; name: string; buf: TimedPosition[]; hp: number; ax: number; ay: number; atk: boolean; seen: number; lx: number; ly: number; walk: number; flash: number; tg?: string | null; foco?: string; slow?: boolean; team?: number; swingAt: number; shotAt: number; castAt: number; mv: number; drawT: number }
 interface Fx { kind: string; x: number; y: number; dx?: number; dy?: number; r?: number; x2?: number; y2?: number; t0: number; dur: number }
 type ChestKind = 'forja' | 'sarcofago' | 'ornamentado' | 'relicario';
 interface Light { x: number; y: number; r: number; c: string; fl?: number; a?: number }
@@ -23,13 +24,14 @@ const CHEST_ART: Record<ChestKind, { size: number; rgb: string }> = {
 };
 const CHEST_FILE = { closed: 'cerrado', open: 'abierto', empty: 'vacio' } as const;
 const CHUNK_PX = CHUNK * TILE;
-/** Color de la faja: el propio en ámbar y los demás en violeta (luego será el color del equipo). */
+/** Color de la faja si no se conoce el equipo (partidas sin equipos). */
 const TEAM_ME = '#ffb347', TEAM_OTHER = '#9a6bff';
+const teamColor = (t: number | undefined, fallback: string) => (t != null && TEAMS[t] ? TEAMS[t].color : fallback);
 /** Duración de cada animación de acción (ms). */
 const ACT_MS: Record<ActionKind, number> = { melee: 420, shoot: 360, cast: 600, hit: 340 };
 const DIE_MS = 900;
 /** Estado de animación de un personaje en este cuadro. */
-interface ActorDraw { x: number; y: number; ax: number; ay: number; id: string; me: boolean; walk: number; move: number; foco?: string; swingAt: number; shotAt: number; castAt: number; hitAt: number; dieAt?: number }
+interface ActorDraw { x: number; y: number; ax: number; ay: number; id: string; me: boolean; color: string; walk: number; move: number; foco?: string; swingAt: number; shotAt: number; castAt: number; hitAt: number; dieAt?: number }
 const DIAGS = { TL: DIAG_TL, TR: DIAG_TR, BL: DIAG_BL, BR: DIAG_BR };
 /** Arte de escenario de Astra: tamaño en el mundo (lienzo cuadrado, base al 94 %). */
 const PORTAL_SIZE = 300, MONO_SIZE = 200;
@@ -87,6 +89,9 @@ export class Game {
   private cooldownUntil = 0;
   // --- Combate estilo Albion ---
   private myId = '';
+  /** Equipo propio (-1 si la partida no tiene equipos) y filas del panel de compañeros. */
+  private myTeam = -1;
+  private allyRows = new Map<string, HTMLElement>();
   private build: Build = DEFAULT_BUILD;
   private foco: 0 | 1 = 0;
   private target: string | null = null;
@@ -122,7 +127,7 @@ export class Game {
   private offs: (() => void)[] = [];
   private el: Record<string, HTMLElement>;
 
-  constructor(private root: HTMLElement, private net: Net, start: { seed: number; players: number; x: number; y: number; you?: string }) {
+  constructor(private root: HTMLElement, private net: Net, start: { seed: number; players: number; x: number; y: number; you?: string; team?: number }) {
     const canvas = root.querySelector('canvas')!;
     this.ctx = canvas.getContext('2d')!;
     this.map = generateValidMap(start.seed, start.players);
@@ -155,6 +160,7 @@ export class Game {
     }));
     this.offs.push(net.on('snap', (m) => this.onSnap(m)));
     this.myId = start.you ?? '';
+    this.myTeam = start.team ?? -1;
     this.abEls = [...root.querySelectorAll<HTMLElement>('[data-slot]')];
     // Efectos de habilidades de otros jugadores (las propias ya se dibujaron al lanzarlas).
     this.offs.push(net.on('fx', (m) => {
@@ -169,7 +175,7 @@ export class Game {
     this.raf = requestAnimationFrame(this.loop);
   }
 
-  destroy() { cancelAnimationFrame(this.raf); removeEventListener('resize', this.resize); this.offs.forEach((o) => o()); window.clearTimeout(this.toastTimer); this.el.toast.hidden = true; }
+  destroy() { this.root.querySelector('#aliados')?.replaceChildren(); cancelAnimationFrame(this.raf); removeEventListener('resize', this.resize); this.offs.forEach((o) => o()); window.clearTimeout(this.toastTimer); this.el.toast.hidden = true; }
 
   private static loadSprites() {
     if (Game.art) return;
@@ -286,10 +292,11 @@ export class Game {
       if (!r) { r = { id: o.id, name: o.name, buf: [], hp: o.hp, ax: o.ax, ay: o.ay, atk: o.atk, seen: now, lx: o.x, ly: o.y, walk: 0, flash: -1e9, swingAt: -1e9, shotAt: -1e9, castAt: -1e9, mv: 0, drawT: now }; this.remotes.set(o.id, r); }
       r.buf.push({ x: o.x, y: o.y, t: now }); if (r.buf.length > 20) r.buf.shift();
       if (o.atk && !r.atk) this.remoteAttack(r, o);
-      Object.assign(r, { hp: o.hp, ax: o.ax, ay: o.ay, atk: o.atk, seen: now, tg: o.tg, foco: o.foco, slow: o.slow });
+      Object.assign(r, { hp: o.hp, ax: o.ax, ay: o.ay, atk: o.atk, seen: now, tg: o.tg, foco: o.foco, slow: o.slow, team: o.team });
     }
     for (const [id, r] of this.remotes) if (now - r.seen > 500) this.remotes.delete(id);
     this.syncCombat(m, now);
+    this.renderAllies(m.allies ?? []);
     this.el.hpBar.style.width = `${m.you.hp}%`;
     this.el.hpBar.closest<HTMLElement>('.vida')?.toggleAttribute('data-low', m.you.alive && m.you.hp <= 30);
     this.el.hpText.textContent = String(Math.ceil(m.you.hp));
@@ -460,10 +467,10 @@ export class Game {
     }
     for (const mo of map.monoliths) if (mo.x > v.x0 - 100 && mo.x < v.x1 + 100 && mo.y > v.y0 && mo.y < v.y1 + 200) list.push({ y: mo.y + 40, draw: () => { this.blob(mo.x, mo.y + 40, 48); this.drawScene('monolito_dormido', mo.x, mo.y + 40, MONO_SIZE); } });
     for (const p of this.portals) if (p.x > v.x0 - 160 && p.x < v.x1 + 160 && p.y > v.y0 && p.y < v.y1 + 320) list.push({ y: p.y - 6, draw: () => this.drawScene(`portal_${this.portalState(p)}`, p.x, p.y - 6, PORTAL_SIZE) });
-    for (const { r, x, y } of remotesNow) list.push({ y, draw: () => this.drawActor({ x, y, ax: r.ax, ay: r.ay, id: r.id, me: false, walk: r.walk, move: r.mv, foco: r.foco, swingAt: r.swingAt, shotAt: r.shotAt, castAt: r.castAt, hitAt: r.flash }, now) });
+    for (const { r, x, y } of remotesNow) list.push({ y, draw: () => this.drawActor({ x, y, ax: r.ax, ay: r.ay, id: r.id, me: false, color: teamColor(r.team, TEAM_OTHER), walk: r.walk, move: r.mv, foco: r.foco, swingAt: r.swingAt, shotAt: r.shotAt, castAt: r.castAt, hitAt: r.flash }, now) });
     const me = this.me, dying = !me.alive && now - this.deadAt < DIE_MS + 600;
     if ((me.alive || dying) && !me.extracted) {
-      list.push({ y: me.y, draw: () => this.drawActor({ x: me.x, y: me.y, ax: me.ax, ay: me.ay, id: this.myId, me: true, walk: this.walk, move: this.moveAmt, foco: this.build.focos[this.foco], swingAt: this.swingAt, shotAt: this.shotAt, castAt: this.lastCastAt, hitAt: this.hurtAt, dieAt: me.alive ? undefined : this.deadAt }, now) });
+      list.push({ y: me.y, draw: () => this.drawActor({ x: me.x, y: me.y, ax: me.ax, ay: me.ay, id: this.myId, me: true, color: teamColor(this.myTeam >= 0 ? this.myTeam : undefined, TEAM_ME), walk: this.walk, move: this.moveAmt, foco: this.build.focos[this.foco], swingAt: this.swingAt, shotAt: this.shotAt, castAt: this.lastCastAt, hitAt: this.hurtAt, dieAt: me.alive ? undefined : this.deadAt }, now) });
     }
     for (const c of this.chests) list.push({ y: c.y, draw: () => this.drawChest(c) });
     for (const r of this.remains) list.push({ y: r.y, draw: () => this.drawRemains(r.x, r.y) });
@@ -529,10 +536,12 @@ export class Game {
 
     // 5. Interfaz dentro del mundo: nombres, daño, indicaciones y el colapso final.
     for (const { r, x, y } of remotesNow) {
+      // Compañeros: vida y nombre en el color del equipo. Rivales: vida roja.
+      const ally = !this.isEnemy(r), tc = teamColor(r.team, '#e2c8ff');
       g.fillStyle = 'rgba(20,10,22,.8)'; g.fillRect(x - 23, y - 79, 46, 8);
-      g.fillStyle = '#ff6b6b'; g.fillRect(x - 22, y - 78, 44 * (r.hp / 100), 6);
+      g.fillStyle = ally ? tc : '#ff6b6b'; g.fillRect(x - 22, y - 78, 44 * (r.hp / 100), 6);
       g.font = '500 13px "Alegreya Sans", sans-serif'; g.textAlign = 'center';
-      g.fillStyle = INK; g.fillText(r.name, x + 1, y - 84); g.fillStyle = r.id === this.target ? '#ffd36a' : '#e2c8ff'; g.fillText(r.name, x, y - 85);
+      g.fillStyle = INK; g.fillText(r.name, x + 1, y - 84); g.fillStyle = r.id === this.target ? '#ffd36a' : ally ? tc : '#e2c8ff'; g.fillText(r.name, x, y - 85);
     }
     this.drawFloaters();
     this.drawPrompt(t);
@@ -547,12 +556,51 @@ export class Game {
     g.globalCompositeOperation = 'source-over';
     const vg = g.createRadialGradient(this.W / 2, this.H / 2, Math.min(this.W, this.H) * 0.3, this.W / 2, this.H / 2, Math.max(this.W, this.H) * 0.75);
     vg.addColorStop(0, 'rgba(8,3,12,0)'); vg.addColorStop(1, 'rgba(8,3,12,.8)'); g.fillStyle = vg; g.fillRect(0, 0, this.W, this.H);
+    this.drawAllyArrows(remotesNow);
     const hk = 1 - (now - this.hurtAt) / 400;
     if (hk > 0) {
       const hg = g.createRadialGradient(this.W / 2, this.H / 2, Math.min(this.W, this.H) * 0.25, this.W / 2, this.H / 2, Math.max(this.W, this.H) * 0.7);
       hg.addColorStop(0, 'rgba(200,20,40,0)'); hg.addColorStop(1, `rgba(200,20,40,${0.45 * hk})`); g.fillStyle = hg; g.fillRect(0, 0, this.W, this.H);
     }
     this.worldTransform(g);
+  }
+
+  /** Flechas en el borde de la pantalla hacia los compañeros que no se ven (espacio de pantalla). */
+  private drawAllyArrows(remotes: { r: Remote; x: number; y: number }[]) {
+    const g = this.ctx, m = 34;
+    for (const { r, x, y } of remotes) {
+      if (this.isEnemy(r)) continue;
+      const s = this.screenOf(x, y - 30);
+      if (s.x > m && s.x < this.W - m && s.y > m && s.y < this.H - m) continue;
+      const cx = this.W / 2, cy = this.H / 2, dx = s.x - cx, dy = s.y - cy;
+      const k = Math.min((this.W / 2 - m) / Math.abs(dx || 1e-6), (this.H / 2 - m) / Math.abs(dy || 1e-6));
+      const ex = cx + dx * k, ey = cy + dy * k, a = Math.atan2(dy, dx), c = teamColor(r.team, '#fff');
+      g.save(); g.translate(ex, ey); g.rotate(a);
+      g.beginPath(); g.moveTo(14, 0); g.lineTo(-8, -10); g.lineTo(-4, 0); g.lineTo(-8, 10); g.closePath();
+      g.fillStyle = c; g.strokeStyle = INK; g.lineWidth = 3; g.lineJoin = 'round'; g.stroke(); g.fill();
+      g.restore();
+      g.font = '700 12px "Cabin Sketch", "Alegreya Sans", sans-serif'; g.textAlign = 'center';
+      const lx = ex - Math.cos(a) * 26, ly = ey - Math.sin(a) * 22 + 4;
+      g.fillStyle = INK; g.fillText(r.name, lx + 1, ly + 1); g.fillStyle = c; g.fillText(r.name, lx, ly);
+    }
+  }
+
+  /** Panel de compañeros bajo la vida: nombre, vida y si cayó o escapó. */
+  private renderAllies(allies: { id: string; name: string; hp: number; alive: boolean; extracted: boolean }[]) {
+    const box = this.root.querySelector<HTMLElement>('#aliados'); if (!box) return;
+    const color = teamColor(this.myTeam >= 0 ? this.myTeam : undefined, TEAM_ME);
+    for (const a of allies) {
+      let row = this.allyRows.get(a.id);
+      if (!row) {
+        row = document.createElement('div'); row.className = 'aliado'; row.style.setProperty('--team', color);
+        row.innerHTML = '<span></span><div class="ali-hp"><i></i></div>';
+        row.firstElementChild!.textContent = a.name;
+        box.append(row); this.allyRows.set(a.id, row);
+      }
+      const estado = a.extracted ? 'escapo' : a.alive ? 'vivo' : 'cayo';
+      if (row.dataset.estado !== estado) row.dataset.estado = estado;
+      row.querySelector<HTMLElement>('i')!.style.width = `${a.alive ? a.hp : 0}%`;
+    }
   }
 
   /** Estado visual del portal: el último portal se ve colapsando durante El Desnombrar. */
@@ -584,12 +632,16 @@ export class Game {
   private nearestRemote(maxDist: number) {
     let best: Remote | null = null, bd = maxDist;
     for (const r of this.remotes.values()) {
+      if (!this.isEnemy(r)) continue;
       const p = this.remotePos(r.id); if (!p) continue;
       const d = Math.hypot(p.x - this.me.x, p.y - this.me.y);
       if (d < bd) { bd = d; best = r; }
     }
     return best;
   }
+
+  /** Rival: de otro equipo (o cualquiera si la partida no tiene equipos). */
+  private isEnemy(r: Remote) { return this.myTeam < 0 || r.team == null || r.team !== this.myTeam; }
 
   private setTarget(id: string | null) {
     if (id === this.target) return;
@@ -603,6 +655,7 @@ export class Game {
       const w = this.worldOf(ev.click.x, ev.click.y);
       let hit: string | null = null, bd = 48;
       for (const r of this.remotes.values()) {
+        if (!this.isEnemy(r)) continue;
         const p = this.remotePos(r.id); if (!p) continue;
         const d = Math.hypot(p.x - w.x, p.y - 26 - w.y);
         if (d < bd) { bd = d; hit = r.id; }
@@ -688,6 +741,7 @@ export class Game {
   private drawGroundMarks(remotes: { r: Remote; x: number; y: number }[], sec: number) {
     const g = this.ctx;
     for (const { r, x, y } of remotes) {
+      if (!this.isEnemy(r)) { g.strokeStyle = teamColor(r.team, '#fff'); g.globalAlpha = 0.55; g.lineWidth = 3; g.beginPath(); g.ellipse(x, y + 2, 24, 9, 0, 0, 6.283); g.stroke(); g.globalAlpha = 1; }
       if (r.slow) { g.strokeStyle = 'rgba(140,210,255,.75)'; g.lineWidth = 3; g.beginPath(); g.ellipse(x, y + 2, 26, 10, 0, 0, 6.283); g.stroke(); }
       if (r.id !== this.target) continue;
       const pulse = 1 + Math.sin(sec * 5) * 0.06;
@@ -866,7 +920,7 @@ export class Game {
     if (die == null) this.blob(a.x, a.y, 20);
     drawCharacter(this.ctx, {
       x: a.x, y: a.y, view, flip, app, pose, t: now / 1000, alpha,
-      team: a.me ? TEAM_ME : TEAM_OTHER, foco: a.foco ?? null,
+      team: a.color, foco: a.foco ?? null,
       flash: now - a.hitAt < 120 ? 1 : 0,
     });
   }

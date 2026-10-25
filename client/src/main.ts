@@ -1,6 +1,7 @@
 import './style.css';
 import { Net } from './net';
 import { Game } from './game';
+import { TEAMS, MAX_TEAM_SIZE } from '@shared/index';
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 const screens = ['screen-login', 'screen-lobby', 'screen-game'] as const;
@@ -118,12 +119,33 @@ net.on('lobby', (m) => {
   const ready = $('ready-btn');
   ready.setAttribute('aria-pressed', String(!!me?.ready));
   ready.textContent = me?.ready ? 'Listo ✓' : 'Listo';
-  $('room-players').replaceChildren(...m.players.map((p: any) => {
-    const li = document.createElement('li');
-    li.dataset.player = p.name;
-    li.innerHTML = `<span></span><span class="tag ${p.ready ? 'ok' : ''}">${p.ready ? 'Listo' : 'Esperando'}</span>`;
-    li.firstElementChild!.textContent = p.name;
-    return li;
+  // Cuatro equipos con su color; cada uno muestra a sus jugadores y un botón para cambiarse.
+  $('room-players').replaceChildren(...TEAMS.map((t) => {
+    const members = m.players.filter((p: any) => p.team === t.id);
+    const sec = document.createElement('section');
+    sec.className = 'equipo'; sec.dataset.team = String(t.id); sec.style.setProperty('--team', t.color);
+    if (me?.team === t.id) sec.classList.add('mio');
+    const head = document.createElement('header');
+    head.innerHTML = `<span class="chip"></span><b></b><span class="cupo">${members.length}/${MAX_TEAM_SIZE}</span>`;
+    head.querySelector('b')!.textContent = t.name;
+    if (me && me.team !== t.id) {
+      const b = document.createElement('button');
+      b.type = 'button'; b.className = 'mini'; b.textContent = 'Unirme';
+      b.disabled = members.length >= MAX_TEAM_SIZE;
+      b.addEventListener('click', () => net.send({ type: 'team', team: t.id }));
+      head.append(b);
+    }
+    const ul = document.createElement('ul'); ul.className = 'list';
+    for (const p of members) {
+      const li = document.createElement('li');
+      li.dataset.player = p.name;
+      li.innerHTML = `<span></span><span class="tag ${p.ready ? 'ok' : ''}">${p.ready ? 'Listo' : 'Esperando'}</span>`;
+      li.firstElementChild!.textContent = p.name;
+      ul.append(li);
+    }
+    if (!members.length) { const li = document.createElement('li'); li.className = 'libre'; li.textContent = 'Libre'; ul.append(li); }
+    sec.append(head, ul);
+    return sec;
   }));
 });
 $('ready-btn').addEventListener('click', () => net.send({ type: 'ready', ready: $('ready-btn').getAttribute('aria-pressed') !== 'true' }));
@@ -139,10 +161,26 @@ net.on('start', (m) => {
 });
 net.on('end', (m) => {
   $('result-title').textContent = 'Partida terminada';
-  $('result-list').replaceChildren(...m.results.map((p: any) => {
-    const li = document.createElement('li');
-    li.textContent = `${p.name} · ${p.extracted ? `Extrajo ${p.lootValue ?? 0} ◆` : 'Cayó'} · ${p.kills} bajas · ${Math.round(p.survivedS)} s`;
-    return li;
+  // Resultados por equipo: el botín que sacaron entre todos y cada integrante.
+  const teams = TEAMS.filter((t) => m.results.some((p: any) => p.team === t.id));
+  const groups = teams.length ? teams.map((t) => ({ t, list: m.results.filter((p: any) => p.team === t.id) })) : [{ t: null, list: m.results }];
+  const total = (l: any[]) => l.reduce((n, p) => n + (p.extracted ? p.lootValue ?? 0 : 0), 0);
+  groups.sort((a, b) => total(b.list) - total(a.list));
+  $('result-list').replaceChildren(...groups.flatMap(({ t, list }) => {
+    const items: HTMLElement[] = [];
+    if (t) {
+      const h = document.createElement('li');
+      h.className = 'res-equipo'; h.style.setProperty('--team', t.color);
+      const out = list.filter((p: any) => p.extracted).length;
+      h.textContent = `Equipo ${t.name} · ${out}/${list.length} escaparon · ${total(list)} ◆`;
+      items.push(h);
+    }
+    for (const p of list) {
+      const li = document.createElement('li');
+      li.textContent = `${p.name} · ${p.extracted ? `Extrajo ${p.lootValue ?? 0} ◆` : 'Cayó'} · ${p.kills} bajas · ${Math.round(p.survivedS)} s`;
+      items.push(li);
+    }
+    return items;
   }));
   $('result').hidden = false;
 });

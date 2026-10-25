@@ -17,6 +17,8 @@ export const ClientMessageSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('join'), roomId: z.string().min(1).max(40), password: z.string().max(32).optional() }),
   z.object({ type: z.literal('leave') }),
   z.object({ type: z.literal('ready'), ready: z.boolean() }),
+  /** Cambiarse de equipo en el lobby (0 a 3). */
+  z.object({ type: z.literal('team'), team: z.number().int().min(0).max(3) }),
   z.object({
     type: z.literal('input'),
     seq: z.number().int().nonnegative(),
@@ -54,6 +56,8 @@ export const PlayerRecordSchema = z.object({
   extracted: z.boolean(),
   /** Valor del botín con el que escapó (0 si murió). */
   lootValue: z.number().min(0).max(1_000_000).default(0),
+  /** Equipo (0 a 3); opcional para aceptar registros anteriores. */
+  team: z.number().int().min(0).max(3).optional(),
 });
 
 export const MatchRecordSchema = z.object({

@@ -5,7 +5,7 @@ import {
   FOCOS, DEFAULT_BUILD, abilityFor, inBasicRange, clampAim, fanDirections, GCD_MS, SWAP_MS, DASH_S, DASH_MUL, SLOW_MUL, SLOW_MS, KNOCK_PX, PROJECTILE, TILE,
   type Build, type Slot, type AbilityDef,
   type GridMap, type InputMessage, type MatchRecord, type PhaseConfig,
-  type ChestKind,
+  type ChestKind, teamSpawns,
 } from '@shared/index';
 import { config } from './config';
 
@@ -13,6 +13,8 @@ export interface Conn { id: string; name: string; send(msg: unknown): void }
 
 interface Actor {
   conn: Conn;
+  /** Equipo (0 a 3): no hay daño entre compañeros y se ven siempre. */
+  team: number;
   x: number; y: number; ax: number; ay: number;
   hp: number; shield: number;
   alive: boolean; extracted: boolean;
@@ -65,18 +67,24 @@ export class Match {
   private timer: NodeJS.Timeout | null = null;
   private finished = false;
 
-  constructor(conns: Conn[], private onEnd: (record: MatchRecord) => void) {
-    this.map = generateValidMap(this.seed, conns.length);
+  constructor(entries: (Conn | { conn: Conn; team: number })[], private onEnd: (record: MatchRecord) => void) {
+    // Sin equipo indicado, cada jugador va solo (todos contra todos), como en las pruebas.
+    const list = entries.map((e, i) => ('conn' in e ? e : { conn: e, team: i % 4 }));
+    this.map = generateValidMap(this.seed, list.length);
     this.chests = placeChests(this.map).map((c) => ({ ...c, state: 'closed' as const }));
-    conns.forEach((conn, i) => {
-      const sp = this.map.spawns[config.sameSpawn ? 0 : i % this.map.spawns.length];
-      const ring = config.sameSpawn ? i : Math.floor(i / this.map.spawns.length);
+    const spawnOf = teamSpawns(list.map((e) => e.team), this.map.spawns.length);
+    const placed = new Map<number, number>();
+    list.forEach(({ conn, team }, i) => {
+      // Cada equipo sale de su propia llegada; los compañeros, alrededor.
+      const k = placed.get(team) ?? 0; placed.set(team, k + 1);
+      const sp = this.map.spawns[config.sameSpawn ? 0 : spawnOf.get(team)!];
+      const ring = config.sameSpawn ? i : k;
       // Compañeros de equipo junto a la llegada, en el primer lugar libre de obstáculos.
       const free = (x: number, y: number) => [0, Math.PI / 2, Math.PI, Math.PI * 1.5, Math.PI / 4, Math.PI * 1.25].every((a) => !isSolidWorld(this.map, x + Math.cos(a) * PLAYER.radius, y + Math.sin(a) * PLAYER.radius)) && !isSolidWorld(this.map, x, y);
       const offs = ring === 0 ? [[0, 0]] : [[48, 0], [-48, 0], [0, 48], [0, -48], [48, 48], [-48, -48], [48, -48], [-48, 48]].map(([dx, dy]) => [dx * ring, dy * ring]);
       const [ox, oy] = offs.find(([dx, dy]) => free(sp.x + dx, sp.y + dy)) ?? [0, 0];
       this.actors.set(conn.id, {
-        conn, x: sp.x + ox, y: sp.y + oy, ax: 0, ay: 1,
+        conn, team, x: sp.x + ox, y: sp.y + oy, ax: 0, ay: 1,
         hp: PLAYER.maxHp, shield: 0, alive: true, extracted: false,
         input: null, lastSeq: 0, moves: createMoveQueue(), cooldownUntil: 0, attackAt: 0, syncT: 0,
         kills: 0, deaths: 0, endedAt: null,
@@ -88,8 +96,9 @@ export class Match {
   }
 
   start() {
+    const roster = [...this.actors.values()].map((b) => ({ id: b.conn.id, name: b.conn.name, team: b.team }));
     for (const a of this.actors.values()) {
-      a.conn.send({ type: 'start', seed: this.seed, players: this.actors.size, you: a.conn.id, phases: this.phases, x: a.x, y: a.y });
+      a.conn.send({ type: 'start', seed: this.seed, players: this.actors.size, you: a.conn.id, team: a.team, roster, phases: this.phases, x: a.x, y: a.y });
     }
     this.timer = setInterval(() => this.tick(), TICK_MS);
   }
@@ -100,7 +109,8 @@ export class Match {
     a.lastSeq = msg.seq;
     a.input = msg;
     if (msg.viewT !== undefined) a.viewT = msg.viewT;
-    if (msg.target !== undefined) a.target = msg.target && msg.target !== id && this.actors.has(msg.target) ? msg.target : null;
+    // Solo se puede fijar a un rival.
+    if (msg.target !== undefined) a.target = msg.target && this.actors.get(msg.target) && this.actors.get(msg.target)!.team !== a.team ? msg.target : null;
     if (msg.swap) a.pendingSwap = true;
     if (msg.use) a.pendingUse = true;
     // La embestida se autoriza al recibir el lanzamiento, antes de los tramos rápidos que vienen detrás.
@@ -161,6 +171,7 @@ export class Match {
           if (a.syncT >= SYNC_SECONDS[1]) {
             a.extracted = true; a.endedAt = now;
             a.conn.send({ type: 'extracted', value: itemValue(a.inventory), items: a.inventory });
+            this.tellTeam(a, `${a.conn.name} escapó de la Grid`);
           }
         } else a.syncT = 0;
       }
@@ -182,10 +193,17 @@ export class Match {
     this.broadcast(t, ph.phase, portals, collapseR);
   }
 
-  private enemies(a: Actor) { return [...this.actors.values()].filter((b) => b !== a && b.alive && !b.extracted); }
+  /** Rivales vivos: los compañeros nunca reciben daño de habilidades, básicos ni proyectiles. */
+  private enemies(a: Actor) { return [...this.actors.values()].filter((b) => b.team !== a.team && b.alive && !b.extracted); }
+
+  /** Aviso a los compañeros de un jugador. */
+  private tellTeam(a: Actor, message: string) {
+    for (const b of this.actors.values()) if (b !== a && b.team === a.team) b.conn.send({ type: 'notice', message });
+  }
 
   /** Aplica daño de una habilidad o básico y avisa al atacante para el número flotante. */
   private strike(a: Actor, b: Actor, base: number, at: { x: number; y: number }, now: number, rewindMs = 0) {
+    if (a.team === b.team) return;
     const r = computeDamage({ base, rarity: 'comun', targetShield: b.shield });
     b.shield = r.remainingShield;
     this.hurt(b, r.toHealth, a);
@@ -208,7 +226,7 @@ export class Match {
   private basicAttack(a: Actor, now: number) {
     if (!a.target) return;
     const b = this.actors.get(a.target);
-    if (!b || !b.alive || b.extracted) { a.target = null; return; }
+    if (!b || !b.alive || b.extracted || b.team === a.team) { a.target = null; return; }
     if (now < a.nextBasic || a.dash) return;
     const foco = FOCOS[a.build.focos[a.foco]];
     const at = clampRewind(now, a.viewT);
@@ -319,6 +337,7 @@ export class Match {
       if (by) by.kills++;
       this.dropRemains(b);
       b.conn.send({ type: 'died', by: by?.conn.name ?? 'El Desnombrar' });
+      this.tellTeam(b, `${b.conn.name} cayó`);
     }
   }
 
@@ -332,10 +351,12 @@ export class Match {
   private broadcast(t: number, phase: string, portals: { x: number; y: number; open: boolean }[], collapseR: number) {
     const all = [...this.actors.values()];
     for (const a of all) {
+      // Los compañeros se envían siempre (para el HUD y las flechas); los rivales, solo si se ven.
       const others = all
         .filter((b) => b !== a && b.alive && !b.extracted)
-        .filter((b) => Math.hypot(b.x - a.x, b.y - a.y) < VIEW_RADIUS && hasLineOfSight(this.map, a, b))
-        .map((b) => ({ id: b.conn.id, name: b.conn.name, x: Math.round(b.x), y: Math.round(b.y), hp: b.hp, ax: b.ax, ay: b.ay, atk: Date.now() - b.attackAt < 200, tg: b.target, foco: b.build.focos[b.foco], slow: Date.now() < b.slowUntil }));
+        .filter((b) => b.team === a.team || (Math.hypot(b.x - a.x, b.y - a.y) < VIEW_RADIUS && hasLineOfSight(this.map, a, b)))
+        .map((b) => ({ id: b.conn.id, name: b.conn.name, team: b.team, x: Math.round(b.x), y: Math.round(b.y), hp: b.hp, ax: b.ax, ay: b.ay, atk: Date.now() - b.attackAt < 200, tg: b.target, foco: b.build.focos[b.foco], slow: Date.now() < b.slowUntil }));
+      const allies = all.filter((b) => b !== a && b.team === a.team).map((b) => ({ id: b.conn.id, name: b.conn.name, hp: Math.ceil(b.hp), alive: b.alive, extracted: b.extracted }));
       const now = Date.now();
       const cd = (slot: Slot) => Math.max(0, Math.round((a.cds[abilityFor(a.build, a.foco, slot).id] ?? 0) - now));
       a.conn.send({
@@ -345,13 +366,13 @@ export class Match {
         chests: this.chests.filter((c) => Math.hypot(c.x - a.x, c.y - a.y) < VIEW_RADIUS).map((c) => ({ id: c.id, k: c.kind, x: c.x, y: c.y, s: c.state })),
         remains: this.remains.filter((r) => Math.hypot(r.x - a.x, r.y - a.y) < VIEW_RADIUS).map((r) => ({ id: r.id, x: Math.round(r.x), y: Math.round(r.y), owner: r.owner })),
         you: {
-          x: a.x, y: a.y, hp: a.hp, alive: a.alive, extracted: a.extracted, sync: a.syncT, syncNeed: SYNC_SECONDS[1], seq: a.lastSeq, ack: a.moves.ack, ackRem: a.moves.ackRem,
+          x: a.x, y: a.y, hp: a.hp, team: a.team, alive: a.alive, extracted: a.extracted, sync: a.syncT, syncNeed: SYNC_SECONDS[1], seq: a.lastSeq, ack: a.moves.ack, ackRem: a.moves.ackRem,
           kills: a.kills, atk: now - a.attackAt < 200, attackAt: a.attackAt, inv: a.inventory,
           target: a.target, foco: a.foco, build: a.build, slow: now < a.slowUntil ? SLOW_MUL : 1,
           cds: { Q: cd('Q'), E: cd('E'), R: cd('R') }, gcd: Math.max(0, a.gcdUntil - now), swap: Math.max(0, a.swapReady - now),
         },
         projectiles: this.projectiles.filter((p) => Math.hypot(p.x - a.x, p.y - a.y) < VIEW_RADIUS + 200).map((p) => ({ id: p.id, x: Math.round(p.x), y: Math.round(p.y), vx: Math.round(p.vx), vy: Math.round(p.vy) })),
-        others,
+        others, allies,
       });
     }
   }
@@ -363,7 +384,7 @@ export class Match {
     const players = [...this.actors.values()].map((a) => {
       if (a.alive && !a.extracted) { a.alive = false; a.deaths++; a.endedAt = now; a.inventory = []; }
       return {
-        name: a.conn.name, kills: a.kills, deaths: a.deaths, extracted: a.extracted,
+        name: a.conn.name, team: a.team, kills: a.kills, deaths: a.deaths, extracted: a.extracted,
         lootValue: a.extracted ? itemValue(a.inventory) : 0,
         survivedS: Math.round(((a.endedAt ?? now) - this.startedAt) / 100) / 10,
       };
