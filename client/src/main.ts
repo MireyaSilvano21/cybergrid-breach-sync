@@ -5,6 +5,7 @@ import { TEAMS, MAX_TEAM_SIZE } from '@shared/index';
 import { HubUI } from './hubui';
 import { setupSplash } from './fullscreen';
 import { preloadFocos } from './focos-art';
+import { sound } from './audio';
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 const screens = ['screen-login', 'screen-lobby', 'screen-game'] as const;
@@ -158,6 +159,8 @@ net.on('lobby', (m) => {
 hub = new HubUI(net, () => currentRoom !== null);
 // Las armas se cargan desde el campamento para que ya estén listas en la partida.
 preloadFocos();
+// Un clic suave en los botones de los menús (el sonido se desbloquea con el primer toque).
+document.addEventListener('click', (e) => { if ((e.target as HTMLElement | null)?.closest('.panel-screen button, .result button')) sound.play('click'); });
 
 $('ready-btn').addEventListener('click', () => net.send({ type: 'ready', ready: $('ready-btn').getAttribute('aria-pressed') !== 'true' }));
 $('leave-btn').addEventListener('click', () => { net.send({ type: 'leave' }); currentRoom = null; $('room-panel').hidden = true; refreshRooms(); });

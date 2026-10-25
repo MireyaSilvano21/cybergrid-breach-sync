@@ -1,6 +1,6 @@
 import {
   PLAYER, TICK_MS, SYNC_SECONDS, computeDamage, applyHealth, generateValidMap, moveCircle, hasLineOfSight,
-  phaseAt, scalePhases, DEFAULT_PHASES, placeChests, addToInventory, itemValue, INTERACT_RANGE,
+  phaseAt, scalePhases, DEFAULT_PHASES, placeChests, addToInventory, itemValue, INTERACT_RANGE, ITEMS, INVENTORY_SLOTS, CONSUMABLES, byValueDensity, slotsUsed,
   isSolidWorld, solidAt, pushHistory, positionAt, clampRewind, type TimedPoint, createMoveQueue, enqueueMove, consumeMoves, type MoveQueue,
   FOCOS, abilityFor, clampAim, fanDirections, inCone, inLine, blinkTarget, reloadAmmo, dashMulFor,
   AMMO_MAX, GCD_MS, SWAP_MS, DASH_S, SLOW_MUL, TILE,
@@ -38,6 +38,9 @@ interface Actor {
   ritualT: number; pveKills: number; pulseUntil: number;
   /** Ángulo de la aguja que mandó el cliente en la prueba de Nombre (se resuelve en el tick). */
   pendingName: number | null;
+  /** Acción de mochila pendiente y efectos de consumibles (curación en el tiempo y protección). */
+  pendingInv: { a: 'take' | 'all' | 'drop' | 'use'; i: number; from?: string } | null;
+  healUntil: number; wardUntil: number;
   kills: number; deaths: number; endedAt: number | null;
   inventory: string[];
   pendingUse: boolean; pendingSwap: boolean;
@@ -140,7 +143,7 @@ export class Match {
         hp: PLAYER.maxHp, shield: 0, alive: true, extracted: false,
         input: null, lastSeq: 0, moves: createMoveQueue(), attackAt: 0, syncT: 0,
         syncPortal: -1, syncRevealUntil: 0, shieldGrant: 0, shieldUntil: 0,
-        ritualT: 0, pveKills: 0, pulseUntil: 0, pendingName: null,
+        ritualT: 0, pveKills: 0, pulseUntil: 0, pendingName: null, pendingInv: null, healUntil: 0, wardUntil: 0,
         kills: 0, deaths: 0, endedAt: null,
         inventory: [], pendingUse: false, pendingSwap: false, history: [],
         build: buildFromProfile(profile), foco: 0, ammo: AMMO_MAX, nextShot: 0, cds: {}, gcdUntil: 0, swapReady: 0,
@@ -164,6 +167,7 @@ export class Match {
     a.input = msg;
     if (msg.viewT !== undefined) a.viewT = msg.viewT;
     if (msg.swap) a.pendingSwap = true;
+    if (msg.inv) a.pendingInv = msg.inv;
     if (msg.name !== undefined) a.pendingName = msg.name;
     else if (msg.use) a.pendingUse = true;
     const now = Date.now();
@@ -225,6 +229,7 @@ export class Match {
         if (al > 0.1) { a.ax = inp.ax / al; a.ay = inp.ay / al; }
         if (a.pendingSwap && now >= a.swapReady) { a.foco = a.foco === 0 ? 1 : 0; a.swapReady = now + SWAP_MS; a.nextShot = Math.max(a.nextShot, now + 250); }
         if (a.dash) this.dashHits(a, now);
+        if (a.pendingInv) { this.invAction(a, a.pendingInv, now); a.pendingInv = null; }
         if (a.pendingName !== null) this.tryName(a, a.pendingName, now);
         else if (a.pendingUse) this.use(a, now);
         // Extracción: mantener interactuar junto a un portal abierto.
@@ -240,6 +245,8 @@ export class Match {
         } else a.syncT = 0;
       }
       a.pendingUse = false; a.pendingSwap = false; a.pendingName = null;
+      // Tónico de Sutura: cura poco a poco mientras no te golpeen.
+      if (now < a.healUntil && a.alive) a.hp = Math.min(100, a.hp + CONSUMABLES.tonico.healPerS * dt);
       if (a.shieldUntil && now >= a.shieldUntil) { a.shield = Math.max(0, a.shield - a.shieldGrant); a.shieldGrant = 0; a.shieldUntil = 0; }
       if (a.knock) {
         const k = moveCircle(this.map, a, a.knock.vx * dt, a.knock.vy * dt, PLAYER.radius);
@@ -562,8 +569,9 @@ export class Match {
     }
     if (e.dmg) this.strike(a, b, e.dmg, at, rewindMs);
     if (!b.alive) return;
-    if (e.slowMs) b.slowUntil = Math.max(b.slowUntil, now + e.slowMs);
-    if (e.rootMs) b.rootUntil = Math.max(b.rootUntil, now + e.rootMs);
+    // Sal de Guarda: mientras dura, no te ralentizan ni te inmovilizan.
+    if (e.slowMs && now >= b.wardUntil) b.slowUntil = Math.max(b.slowUntil, now + e.slowMs);
+    if (e.rootMs && now >= b.wardUntil) b.rootUntil = Math.max(b.rootUntil, now + e.rootMs);
     if (e.knock) this.push(b, b.x - origin.x, b.y - origin.y, e.knock * TILE, now);
   }
 
@@ -738,8 +746,9 @@ export class Match {
       a.conn.send({ type: 'opened', id: target.id, items: target.items });
       return;
     }
-    const r = addToInventory(a.inventory, target.items);
-    if (!r.taken.length) { a.conn.send({ type: 'notice', message: 'Tu mochila está llena.' }); return; }
+    // Tomar todo: primero lo que más vale por casilla, para que lo valioso nunca se quede.
+    const r = addToInventory(a.inventory, byValueDensity(target.items));
+    if (!r.taken.length) { a.conn.send({ type: 'notice', message: 'Tu mochila está llena: suelta algo para hacer espacio.' }); return; }
     a.inventory = r.inventory;
     target.items = r.left;
     if ('state' in target) { if (!r.left.length) target.state = 'empty'; }
@@ -747,9 +756,60 @@ export class Match {
     a.conn.send({ type: 'looted', items: r.taken, left: r.left.length });
   }
 
+  /** Contenedor abierto más cercano al alcance: cofre abierto o restos (o los de un id dado). */
+  private lootNear(a: Actor, id?: string) {
+    let best: { id: string; x: number; y: number; items: string[] } | null = null, bd: number = INTERACT_RANGE;
+    for (const c of [...this.chests.filter((c) => c.state === 'open'), ...this.remains]) {
+      if (id && c.id !== id) continue;
+      const d = Math.hypot(c.x - a.x, c.y - a.y);
+      if (d <= bd) { bd = d; best = c; }
+    }
+    return best;
+  }
+
+  /** Acciones de mochila: tomar un objeto o todo, soltar uno o usar un consumible. */
+  private invAction(a: Actor, act: { a: 'take' | 'all' | 'drop' | 'use'; i: number; from?: string }, now: number) {
+    if (act.a === 'all') return this.use(a, now);
+    if (act.a === 'take') {
+      const box = this.lootNear(a, act.from), item = box?.items[act.i];
+      if (!box || !item) return;
+      if (slotsUsed(a.inventory) + (ITEMS[item]?.size ?? 1) > INVENTORY_SLOTS) { a.conn.send({ type: 'notice', message: 'No cabe: suelta algo para hacer espacio.' }); return; }
+      box.items.splice(act.i, 1);
+      a.inventory = [...a.inventory, item];
+      this.emptied(box);
+      a.conn.send({ type: 'looted', items: [item], left: box.items.length });
+      return;
+    }
+    const item = a.inventory[act.i];
+    if (!item) return;
+    if (act.a === 'drop') {
+      a.inventory = a.inventory.filter((_, k) => k !== act.i);
+      // Lo soltado queda en el suelo como una bolsa que cualquiera puede saquear.
+      const own = this.remains.find((r) => r.id.startsWith(`d-${a.conn.id}-`) && Math.hypot(r.x - a.x, r.y - a.y) < 60);
+      if (own) own.items.push(item);
+      else this.remains.push({ id: `d-${a.conn.id}-${now}`, x: a.x, y: a.y + 8, items: [item], owner: a.conn.name });
+      a.conn.send({ type: 'dropped', item });
+      return;
+    }
+    if (ITEMS[item]?.kind !== 'consumible') return;
+    a.inventory = a.inventory.filter((_, k) => k !== act.i);
+    if (item === 'tonico') a.healUntil = now + CONSUMABLES.tonico.ms;
+    if (item === 'sal') { a.slowUntil = 0; a.rootUntil = 0; a.wardUntil = now + CONSUMABLES.sal.wardMs; }
+    a.conn.send({ type: 'used', item });
+  }
+
+  /** Un contenedor que se quedó sin nada: el cofre queda vacío y los restos desaparecen. */
+  private emptied(box: { id: string; items: string[] }) {
+    if (box.items.length) return;
+    const c = this.chests.find((x) => x.id === box.id);
+    if (c) c.state = 'empty';
+    else { const i = this.remains.findIndex((r) => r.id === box.id); if (i >= 0) this.remains.splice(i, 1); }
+  }
+
   private hurt(b: Actor, dmg: number, by: Actor | null, cause = 'El Desnombrar') {
     b.hp = applyHealth(b.hp, dmg);
     b.syncT = 0;
+    if (dmg > 0) b.healUntil = 0; // un golpe corta el Tónico
     if (b.hp <= 0 && b.alive) {
       b.alive = false; b.deaths++; b.endedAt = Date.now();
       if (by) by.kills++;
@@ -827,6 +887,8 @@ export class Match {
           slow: now < a.rootUntil ? 0 : now < a.slowUntil ? SLOW_MUL : 1, root: now < a.rootUntil, invis: now < a.invisUntil, reveal: now < a.revealUntil,
           cds: { Q: cd('Q'), E: cd('E'), R: cd('R') }, gcd: Math.max(0, a.gcdUntil - now), swap: Math.max(0, a.swapReady - now),
           rt: Math.round((a.ritualT / RITUAL.activateS) * 100) / 100, pve: a.pveKills,
+          loot: (() => { const b = a.alive && !a.extracted ? this.lootNear(a) : null; return b ? { id: b.id, items: b.items } : null; })(),
+          heal: now < a.healUntil, ward: now < a.wardUntil,
           nt: this.nameTests.has(a.conn.id) ? (() => { const n = this.nameTests.get(a.conn.id)!; return { el: now - n.t0, z: Math.round(n.zone * 1000) / 1000 }; })() : null,
         },
         projectiles: this.projectiles.filter((p) => Math.hypot(p.x - a.x, p.y - a.y) < VIEW_RADIUS + 300).map((p) => ({
