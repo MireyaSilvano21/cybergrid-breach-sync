@@ -3,7 +3,7 @@ import {
   FOCOS, NOMBRES, DEFAULT_BUILD, abilityFor, clampAim, fanDirections, blinkTarget, dashMulFor, reloadAmmo, solidAt, AMMO_MAX, GCD_MS, SWAP_MS, DASH_S, DASH_MUL,
   type Build, type Slot, type Shape, type ProjectileDef,
   animate, appearanceFor, BODIES, type Appearance, type AnimInput, type ActionKind, type View,
-  TEAMS,
+  TEAMS, RESONANCE,
   type GridMap, type TimedPosition,
 } from '@shared/index';
 import type { Net } from './net';
@@ -11,7 +11,7 @@ import { Input, type AimSlot, type Drag } from './input';
 import { Sprites, isDeepWall, drawDiagWall, drawThinCracks, drawCover, drawBars, drawBrazier, buildFloorChunk, buildWall, wallKey, buildDecor, drawGrass, glowP, CHUNK, WALL_RISE, INK, type FloorChunk, type Decor } from './art';
 import { drawCharacter } from './rig';
 
-interface Remote { id: string; name: string; buf: TimedPosition[]; hp: number; ax: number; ay: number; atk: boolean; seen: number; lx: number; ly: number; walk: number; flash: number; foco?: string; slow?: boolean; root?: boolean; invis?: boolean; rev?: boolean; team?: number; swingAt: number; shotAt: number; castAt: number; mv: number; drawT: number }
+interface Remote { id: string; name: string; buf: TimedPosition[]; hp: number; ax: number; ay: number; atk: boolean; seen: number; lx: number; ly: number; walk: number; flash: number; foco?: string; slow?: boolean; root?: boolean; invis?: boolean; rev?: boolean; mark?: boolean; team?: number; swingAt: number; shotAt: number; castAt: number; mv: number; drawT: number }
 interface Fx { kind: string; x: number; y: number; dx?: number; dy?: number; r?: number; x2?: number; y2?: number; ang?: number; w?: number; rgb?: string; t0: number; dur: number }
 /** Disparo propio predicho: se dibuja desde que sale, sin esperar al servidor. */
 interface MyShot { n: number; kind: string; x0: number; y0: number; dx: number; dy: number; speed: number; radius: number; range: number; t0: number; seen: boolean; dead: boolean; pierce: boolean }
@@ -44,6 +44,31 @@ function lightSprite(key: string, stops: [number, string][]): HTMLCanvasElement 
 }
 const HOLE = () => lightSprite('hole', [[0, 'rgba(0,0,0,1)'], [0.5, 'rgba(0,0,0,.8)'], [1, 'rgba(0,0,0,0)']]);
 const TINT = (c: string, a: number) => lightSprite(`${c}|${a}`, [[0, `rgba(${c},${a})`], [1, `rgba(${c},0)`]]);
+/**
+ * Escrituras al DOM solo si el valor cambió: cada cambio obliga al navegador a recalcular estilos
+ * (y a veces el acomodo), y hacerlo en cada cuadro le cuesta mucho a un celular.
+ */
+function setText(el: HTMLElement, v: string) { if (el.textContent !== v) el.textContent = v; }
+function setStyle(el: HTMLElement, prop: string, v: string) { if (el.style.getPropertyValue(prop) !== v) el.style.setProperty(prop, v); }
+function setData(el: HTMLElement, key: string, v: string) { if (el.dataset[key] !== v) el.dataset[key] = v; }
+
+/** Nombres sobre los personajes: se dibujan una vez en un lienzo pequeño y se reutilizan (el texto es caro). */
+const labelCache = new Map<string, HTMLCanvasElement>();
+function labelSprite(text: string, color: string): HTMLCanvasElement {
+  const key = text + '|' + color;
+  let c = labelCache.get(key);
+  if (!c) {
+    c = document.createElement('canvas');
+    const g0 = c.getContext('2d')!, font = '500 26px "Alegreya Sans", sans-serif';
+    g0.font = font; const w = Math.ceil(g0.measureText(text).width) + 8;
+    c.width = w; c.height = 34;
+    const g = c.getContext('2d')!; g.font = font; g.textAlign = 'center'; g.textBaseline = 'middle';
+    g.fillStyle = INK; g.fillText(text, w / 2 + 2, 19); g.fillStyle = color; g.fillText(text, w / 2, 17);
+    if (labelCache.size > 200) labelCache.clear();
+    labelCache.set(key, c);
+  }
+  return c;
+}
 /** Si el juego baja de este ritmo, se reduce la resolución de dibujo (y sube cuando se recupera). */
 const LOW_FPS = 45, HIGH_FPS = 57;
 /** Medición de tiempos por sección del dibujo (solo con ?perf en la dirección). */
@@ -89,7 +114,7 @@ export class Game {
   /** Resolución de la capa de oscuridad respecto al lienzo (1/2 en PC, 1/3 en táctil). */
   private darkK = 0.5;
   /** Calidad de dibujo (1 = completa); baja sola si el dispositivo no alcanza 45 FPS. */
-  private quality = 1; private qAcc = 0; private qN = 0; private qHigh = 0;
+  private quality = 1; private qAcc = 0; private qN = 0; private qHigh = 0; private workAcc = 0; private capWarned = false;
   private embers: { x: number; y: number; vx: number; vy: number; l: number; c: string }[] = [];
   private sparks: { x: number; y: number; vx: number; vy: number; l: number }[] = [];
   private shake = 0; private hurtAt = -1e9; private walk = 0; private moveAmt = 0;
@@ -143,7 +168,9 @@ export class Game {
   private fxs: Fx[] = [];
   private abEls: HTMLElement[] = [];
   private floaters: { x: number; y: number; text: string; t0: number; id?: string; heal?: boolean }[] = [];
-  private portals: { x: number; y: number; open: boolean }[] = [];
+  private portals: { x: number; y: number; open: boolean; u?: number }[] = [];
+  /** Resonancia del equipo propio (null fuera de la Primera y Segunda Llamada): barra, marca, anillo y multiplicador. */
+  private res: { v: number; m: boolean; z: 'near' | 'far' | null; k: number } | null = null;
   private chests: { id: string; k?: ChestKind; x: number; y: number; s: 'closed' | 'open' | 'empty' }[] = [];
   private remains: { id: string; x: number; y: number; owner: string }[] = [];
   private inv: string[] = [];
@@ -161,7 +188,8 @@ export class Game {
 
   constructor(private root: HTMLElement, private net: Net, start: { seed: number; players: number; x: number; y: number; you?: string; team?: number }) {
     const canvas = root.querySelector('canvas')!;
-    this.ctx = canvas.getContext('2d')!;
+    // Lienzo opaco (el navegador no mezcla con lo de atrás) y de baja latencia donde se soporte.
+    this.ctx = (canvas.getContext('2d', { alpha: false, desynchronized: true }) ?? canvas.getContext('2d'))!;
     this.map = generateValidMap(start.seed, start.players);
     this.wallKeys = new Int16Array(this.map.width * this.map.height).fill(-1);
     // Solo se dibujan los muros que tocan algo recorrible; el resto es oscuridad (como en un plano de mazmorra).
@@ -174,7 +202,7 @@ export class Game {
     this.me.x = this.pred.x = this.cam.x = start.x;
     this.me.y = this.pred.y = this.cam.y = start.y;
     const q = (id: string) => root.querySelector<HTMLElement>('#' + id)!;
-    this.el = { hpBar: q('hp-bar'), hpText: q('hp-text'), phase: q('phase'), timer: q('timer'), ping: q('ping'), fps: q('fps'), sync: q('sync'), syncBar: q('sync-bar'), state: q('player-state'), toast: q('toast'), inv: q('inventory'), invSlots: q('inv-slots'), invValue: q('inv-value') };
+    this.el = { hpBar: q('hp-bar'), hpText: q('hp-text'), phase: q('phase'), timer: q('timer'), ping: q('ping'), fps: q('fps'), sync: q('sync'), syncBar: q('sync-bar'), state: q('player-state'), toast: q('toast'), inv: q('inventory'), invSlots: q('inv-slots'), invValue: q('inv-value'), reso: q('resonance'), resoBar: q('reso-bar'), resoTxt: q('reso-txt') };
     Game.loadSprites();
     this.renderInventory([]);
     const names = (ids: string[]) => ids.map((id) => ITEMS[id]?.name ?? id).join(', ');
@@ -327,7 +355,7 @@ export class Game {
     if (m.you.hp < this.me.hp && m.you.alive) { this.hurtAt = now; this.shake = Math.max(this.shake, 10); }
     if (this.me.alive && !m.you.alive) this.deadAt = now;
     Object.assign(this.me, { hp: m.you.hp, alive: m.you.alive, extracted: m.you.extracted });
-    this.portals = m.portals; this.collapseR = m.collapseR;
+    this.portals = m.portals; this.collapseR = m.collapseR; this.res = m.res ?? null;
     // Mismos sellos que el servidor, según la fase (la física predicha debe coincidir).
     const later = ['primera-llamada', 'segunda-llamada', 'cierre-portal-1', 'desnombrar', 'fin'];
     this.map.sealsOpen.vault = later.includes(m.phase);
@@ -340,41 +368,76 @@ export class Game {
       if (!r) { r = { id: o.id, name: o.name, buf: [], hp: o.hp, ax: o.ax, ay: o.ay, atk: o.atk, seen: now, lx: o.x, ly: o.y, walk: 0, flash: -1e9, swingAt: -1e9, shotAt: -1e9, castAt: -1e9, mv: 0, drawT: now }; this.remotes.set(o.id, r); }
       r.buf.push({ x: o.x, y: o.y, t: now }); if (r.buf.length > 20) r.buf.shift();
       if (o.atk && !r.atk) this.remoteAttack(r, o);
-      Object.assign(r, { hp: o.hp, ax: o.ax, ay: o.ay, atk: o.atk, seen: now, foco: o.foco, slow: o.slow, root: o.root, invis: o.invis, rev: o.rev, team: o.team });
+      Object.assign(r, { hp: o.hp, ax: o.ax, ay: o.ay, atk: o.atk, seen: now, foco: o.foco, slow: o.slow, root: o.root, invis: o.invis, rev: o.rev, mark: o.mark, team: o.team });
     }
     for (const [id, r] of this.remotes) if (now - r.seen > 500) this.remotes.delete(id);
     this.syncCombat(m, now);
     this.renderAllies(m.allies ?? []);
-    this.el.hpBar.style.width = `${m.you.hp}%`;
-    this.el.hpBar.closest<HTMLElement>('.vida')?.toggleAttribute('data-low', m.you.alive && m.you.hp <= 30);
-    this.el.hpText.textContent = String(Math.ceil(m.you.hp));
-    this.el.phase.textContent = PHASE_LABEL[m.phase] ?? m.phase;
-    const s = m.timeLeft; this.el.timer.textContent = `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
-    this.el.sync.hidden = !(m.you.sync > 0);
-    this.el.syncBar.style.width = `${Math.min(100, (m.you.sync / m.you.syncNeed) * 100)}%`;
+    setStyle(this.el.hpBar, 'width', `${Math.round(m.you.hp)}%`);
+    const low = m.you.alive && m.you.hp <= 30, vida = this.el.hpBar.closest<HTMLElement>('.vida');
+    if (vida && vida.hasAttribute('data-low') !== low) vida.toggleAttribute('data-low', low);
+    setText(this.el.hpText, String(Math.ceil(m.you.hp)));
+    setText(this.el.phase, PHASE_LABEL[m.phase] ?? m.phase);
+    const s = m.timeLeft; setText(this.el.timer, `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`);
+    const syncing = m.you.sync > 0;
+    if (this.el.sync.hidden === syncing) this.el.sync.hidden = !syncing;
+    if (syncing) setStyle(this.el.syncBar, 'width', `${Math.round(Math.min(100, (m.you.sync / m.you.syncNeed) * 100))}%`);
+    this.updateResonanceHud();
+  }
+
+  /** Barra de Resonancia bajo la fase: solo mientras está activa; roja y con aviso si el equipo está marcado. */
+  private updateResonanceHud() {
+    const r = this.res, box = this.el.reso;
+    if (box.hidden !== !r) box.hidden = !r;
+    if (!r) return;
+    setStyle(this.el.resoBar, 'width', `${Math.round(r.v)}%`);
+    setData(box, 'value', String(Math.round(r.v)));
+    setData(box, 'marked', String(r.m));
+    setData(box, 'zone', r.z ?? '');
+    setText(this.el.resoTxt, r.m ? '¡Marcados por la Resonancia!' : r.z ? `Resonancia ×${r.k}` : 'Resonancia');
   }
 
   private loop = (t: number) => {
     const dt = Math.min(0.05, (t - this.last) / 1000);
     this.last = t;
+    const w0 = performance.now();
     this.update(dt, t);
     this.draw(t);
+    // Tiempo de trabajo del cuadro (sin contar la espera del navegador): distingue si el juego es lento
+    // o si el sistema limita los cuadros (modo de ahorro de energía).
+    this.workAcc += performance.now() - w0;
     this.fpsAcc += dt; this.fpsN++;
-    if (this.fpsAcc >= 0.5) { this.el.fps.textContent = `${Math.round(this.fpsN / this.fpsAcc)} fps`; this.fpsAcc = 0; this.fpsN = 0; }
+    if (this.fpsAcc >= 0.5) { if (!PERF) setText(this.el.fps, `${Math.round(this.fpsN / this.fpsAcc)} fps`); this.fpsAcc = 0; this.fpsN = 0; }
     this.adaptQuality(dt);
     this.raf = requestAnimationFrame(this.loop);
   };
 
   /**
-   * Resolución adaptable: cada 2 s mide el ritmo; si baja de 45 FPS, dibuja a menos resolución
-   * (hasta 60 %); si se mantiene arriba de 57 FPS por 6 s, la vuelve a subir.
+   * Resolución adaptable, cada 2 s:
+   * - Si va lento y el juego tarda mucho por cuadro, baja la resolución (hasta 60 %).
+   * - Si va a ~30 FPS justos pero el juego trabaja poco, es el sistema limitando (ahorro de energía):
+   *   no se baja la calidad (no ayudaría) y se avisa una vez al jugador.
+   * - Si se mantiene rápido 6 s, la resolución vuelve a subir.
    */
   private adaptQuality(dt: number) {
     this.qAcc += dt; this.qN++;
     if (this.qAcc < 2) return;
-    const fps = this.qN / this.qAcc; this.qAcc = 0; this.qN = 0;
+    const fps = this.qN / this.qAcc, work = this.workAcc / this.qN;
+    this.qAcc = 0; this.qN = 0; this.workAcc = 0;
+    if (PERF) {
+      // Diagnóstico en pantalla (?perf): ritmo, trabajo por cuadro, calidad, densidad y la parte más cara.
+      const rows = ((window as any).__cgPerf ?? []).slice(-60) as number[][], names = ['piso', 'objetos', 'luz', 'brillos', 'interfaz', 'final'];
+      const avg = names.map((_, i) => rows.reduce((t, r) => t + (r[i] ?? 0), 0) / (rows.length || 1));
+      const top = avg.indexOf(Math.max(...avg));
+      setText(this.el.fps, `${Math.round(fps)} fps · ${work.toFixed(1)} ms · ${Math.round(this.quality * 100)}% · ${this.dpr.toFixed(2)}x · ${names[top]} ${avg[top].toFixed(1)} ms`);
+    }
     if (document.hidden) return;
-    if (fps < LOW_FPS && this.quality > 0.6) { this.quality = Math.max(0.6, this.quality - 0.15); this.qHigh = 0; this.resize(); }
+    const budget = 1000 / 60;
+    if (fps < LOW_FPS && work > budget * 0.6 && this.quality > 0.6) { this.quality = Math.max(0.6, this.quality - 0.15); this.qHigh = 0; this.resize(); }
+    else if (fps < LOW_FPS && fps > 26 && fps < 34 && work < budget * 0.45 && !this.capWarned) {
+      this.capWarned = true;
+      this.toast('Tu dispositivo limita el juego a 30 FPS (ahorro de energía). Desactívalo para jugar a 60.');
+    }
     else if (fps > HIGH_FPS && this.quality < 1) { if (++this.qHigh >= 3) { this.quality = Math.min(1, this.quality + 0.15); this.qHigh = 0; this.resize(); } }
     else this.qHigh = 0;
   }
@@ -423,18 +486,17 @@ export class Game {
     this.cam.x += (this.me.x - this.cam.x) * Math.min(1, dt * 6);
     this.cam.y += (this.me.y - 20 - this.cam.y) * Math.min(1, dt * 6);
     const st = this.el.state;
-    st.dataset.x = String(Math.round(this.me.x)); st.dataset.y = String(Math.round(this.me.y)); st.dataset.hp = String(this.me.hp);
+    setData(st, 'x', String(Math.round(this.me.x))); setData(st, 'y', String(Math.round(this.me.y))); setData(st, 'hp', String(this.me.hp));
     // Cofre disponible más cercano: lo usan las pruebas E2E para guiar al jugador.
     let nc: { x: number; y: number; s: string } | null = null, nd = Infinity;
     for (const c of this.chests) { if (c.s === 'empty') continue; const d = Math.hypot(c.x - this.me.x, c.y - this.me.y); if (d < nd) { nd = d; nc = c; } }
-    st.dataset.chestX = nc ? String(Math.round(nc.x)) : ''; st.dataset.chestY = nc ? String(Math.round(nc.y)) : '';
-    st.dataset.chestState = nc?.s ?? '';
-    st.dataset.interp = String(Math.round(this.interpDelay));
+    setData(st, 'chestX', nc ? String(Math.round(nc.x)) : ''); setData(st, 'chestY', nc ? String(Math.round(nc.y)) : '');
+    setData(st, 'chestState', nc?.s ?? '');
+    setData(st, 'interp', String(Math.round(this.interpDelay)));
     // Rival más cercano en pantalla y cargas: los usan las pruebas E2E para apuntar.
     const ne = this.nearestEnemy(Infinity), ns = ne ? this.screenOf(ne.x, ne.y - 20) : null;
-    st.dataset.enemySx = ns ? String(Math.round(ns.x)) : ''; st.dataset.enemySy = ns ? String(Math.round(ns.y)) : '';
-    st.dataset.ammo = this.ammo.toFixed(2);
-    this.el.ping.title = `Búfer de suavizado: ${Math.round(this.interpDelay)} ms`;
+    setData(st, 'enemySx', ns ? String(Math.round(ns.x)) : ''); setData(st, 'enemySy', ns ? String(Math.round(ns.y)) : '');
+    setData(st, 'ammo', this.ammo.toFixed(2));
   }
 
   /** Trozo de piso con caché LRU: solo se pintan los que se acercan a la cámara. */
@@ -482,7 +544,8 @@ export class Game {
 
   private worldTransform(g: CanvasRenderingContext2D, k = 1) {
     const s = this.scale * this.dpr * k, sx = (Math.random() - 0.5) * this.shake, sy = (Math.random() - 0.5) * this.shake;
-    g.setTransform(s, 0, 0, s, (this.W / 2 - this.cam.x * this.scale + sx) * this.dpr * k, (this.H / 2 - this.cam.y * this.scale + sy) * this.dpr * k);
+    // Desplazamiento en píxeles enteros: el piso y los muros se copian sin suavizado sub-píxel.
+    g.setTransform(s, 0, 0, s, Math.round((this.W / 2 - this.cam.x * this.scale + sx) * this.dpr * k), Math.round((this.H / 2 - this.cam.y * this.scale + sy) * this.dpr * k));
   }
 
   private draw(t: number) {
@@ -610,11 +673,12 @@ export class Game {
       const ally = !this.isEnemy(r), tc = teamColor(r.team, '#e2c8ff');
       g.fillStyle = 'rgba(20,10,22,.8)'; g.fillRect(x - 23, y - 79, 46, 8);
       g.fillStyle = ally ? tc : '#ff6b6b'; g.fillRect(x - 22, y - 78, 44 * (r.hp / 100), 6);
-      g.font = '500 13px "Alegreya Sans", sans-serif'; g.textAlign = 'center';
-      g.fillStyle = INK; g.fillText(r.name, x + 1, y - 84); g.fillStyle = ally ? tc : '#e2c8ff'; g.fillText(r.name, x, y - 85);
+      const lab = labelSprite(r.name, ally ? tc : '#e2c8ff');
+      g.drawImage(lab, x - lab.width / 4, y - 85 - 9, lab.width / 2, lab.height / 2);
     }
-    // Rivales revelados (Escuchar al Viento): marca roja que se ve aunque estén en la oscuridad.
+    // Rivales revelados (Escuchar al Viento, la Resonancia o el portal): marca roja que se ve aunque estén en la oscuridad.
     for (const { r, x, y } of remotesNow) {
+      if (r.mark) this.drawResonanceMark(x, y - 112, t);
       if (!r.rev) continue;
       const pulse = 1 + Math.sin(t / 120) * 0.08;
       g.strokeStyle = 'rgba(255,90,90,.9)'; g.lineWidth = 3; g.beginPath(); g.ellipse(x, y, 30 * pulse, 12 * pulse, 0, 0, 6.283); g.stroke();
@@ -644,16 +708,26 @@ export class Game {
     if (P) { P.push(performance.now()); const w = window as any; w.__cgPerf ??= []; w.__cgPerf.push(P.slice(1).map((x, i) => x - P[i])); if (w.__cgPerf.length > 300) w.__cgPerf.shift(); }
   }
 
-  /** Flechas en el borde de la pantalla hacia los compañeros que no se ven (espacio de pantalla). */
+  /** Ojo de la Resonancia sobre un rival marcado. */
+  private drawResonanceMark(x: number, y: number, t: number) {
+    const g = this.ctx, k = 1 + Math.sin(t / 140) * 0.1;
+    g.save(); g.translate(x, y); g.scale(k, k);
+    g.lineWidth = 3; g.strokeStyle = INK; g.fillStyle = '#ff5a5a';
+    g.beginPath(); g.moveTo(-14, 0); g.quadraticCurveTo(0, -12, 14, 0); g.quadraticCurveTo(0, 12, -14, 0); g.closePath(); g.fill(); g.stroke();
+    g.fillStyle = '#ffd36a'; g.beginPath(); g.arc(0, 0, 4.5, 0, 6.283); g.fill(); g.stroke();
+    g.restore();
+  }
+
+  /** Flechas en el borde de la pantalla hacia los compañeros (y rivales marcados) que no se ven. */
   private drawAllyArrows(remotes: { r: Remote; x: number; y: number }[]) {
     const g = this.ctx, m = 34;
     for (const { r, x, y } of remotes) {
-      if (this.isEnemy(r)) continue;
+      if (this.isEnemy(r) && !r.mark) continue;
       const s = this.screenOf(x, y - 30);
       if (s.x > m && s.x < this.W - m && s.y > m && s.y < this.H - m) continue;
       const cx = this.W / 2, cy = this.H / 2, dx = s.x - cx, dy = s.y - cy;
       const k = Math.min((this.W / 2 - m) / Math.abs(dx || 1e-6), (this.H / 2 - m) / Math.abs(dy || 1e-6));
-      const ex = cx + dx * k, ey = cy + dy * k, a = Math.atan2(dy, dx), c = teamColor(r.team, '#fff');
+      const ex = cx + dx * k, ey = cy + dy * k, a = Math.atan2(dy, dx), c = this.isEnemy(r) ? '#ff5a5a' : teamColor(r.team, '#fff');
       g.save(); g.translate(ex, ey); g.rotate(a);
       g.beginPath(); g.moveTo(14, 0); g.lineTo(-8, -10); g.lineTo(-4, 0); g.lineTo(-8, 10); g.closePath();
       g.fillStyle = c; g.strokeStyle = INK; g.lineWidth = 3; g.lineJoin = 'round'; g.stroke(); g.fill();
@@ -683,8 +757,10 @@ export class Game {
   }
 
   /** Estado visual del portal: el último portal se ve colapsando durante El Desnombrar. */
-  private portalState(p: { x: number; y: number; open: boolean }): 'apagado' | 'abierto' | 'colapsando' {
+  private portalState(p: { x: number; y: number; open: boolean; u?: number }): 'apagado' | 'abierto' | 'colapsando' {
     if (!p.open) return 'apagado';
+    // Inestable por la Resonancia: parpadea entre abierto y colapsando, más rápido cuanto más cerca de moverse.
+    if ((p.u ?? 0) > 0.3) return Math.sin(performance.now() / (220 - 160 * (p.u ?? 0))) > 0 ? 'colapsando' : 'abierto';
     return this.collapseR != null && p === this.portals[1] ? 'colapsando' : 'abierto';
   }
 
@@ -815,7 +891,7 @@ export class Game {
   }
 
   private addFx(kind: string, x: number, y: number, o: Partial<Fx> = {}) {
-    const dur = kind === 'arco' || kind === 'estocada' ? 240 : kind === 'escuchar' ? 900 : 520;
+    const dur = kind === 'arco' || kind === 'estocada' ? 240 : kind === 'escuchar' || kind === 'portal-shift' ? 900 : 520;
     this.fxs.push({ kind, x, y, ...o, t0: performance.now(), dur });
     if (this.fxs.length > 80) this.fxs.shift();
   }
@@ -860,6 +936,31 @@ export class Game {
     }
     if (this.slowMul < 1 && !this.rooted) ring(this.me.x, this.me.y, 'rgba(140,210,255,.75)');
     if (this.rooted) { g.setLineDash([6, 5]); ring(this.me.x, this.me.y, 'rgba(120,230,140,.9)', 30); g.setLineDash([]); }
+    this.drawResonanceRings(sec);
+  }
+
+  /**
+   * Anillos de Resonancia alrededor de los portales abiertos (círculos reales: son las distancias que
+   * mide el servidor). Violeta normal; rojo si tu equipo está marcado o el portal se está volviendo inestable.
+   */
+  private drawResonanceRings(sec: number) {
+    if (!this.res) return;
+    const g = this.ctx, mine = this.res.m;
+    for (const p of this.portals) {
+      if (!p.open) continue;
+      const u = p.u ?? 0, hot = mine || u > 0;
+      const rgb = hot ? '255,80,90' : '190,150,255', flick = u > 0 ? 0.7 + 0.3 * Math.sin(sec * (8 + 20 * u)) : 1;
+      g.lineWidth = 4; g.setLineDash([18, 12]); g.lineDashOffset = -sec * 14;
+      g.strokeStyle = `rgba(${rgb},${0.5 * flick})`; g.beginPath(); g.arc(p.x, p.y, RESONANCE.nearRadius, 0, 6.283); g.stroke();
+      g.lineWidth = 3; g.setLineDash([6, 14]); g.lineDashOffset = sec * 8;
+      g.strokeStyle = `rgba(${rgb},${0.28 * flick})`; g.beginPath(); g.arc(p.x, p.y, RESONANCE.farRadius, 0, 6.283); g.stroke();
+    }
+    g.setLineDash([]); g.lineDashOffset = 0;
+    // Tu equipo marcado: halo rojo que late bajo tus pies.
+    if (mine && this.me.alive && !this.me.extracted) {
+      const k = 1 + Math.sin(sec * 6) * 0.08;
+      g.strokeStyle = 'rgba(255,70,80,.85)'; g.lineWidth = 4; g.beginPath(); g.ellipse(this.me.x, this.me.y + 2, 34 * k, 13 * k, 0, 0, 6.283); g.stroke();
+    }
   }
 
   /** Color de magia (r,g,b) de un proyectil o efecto por su id. */
@@ -900,7 +1001,13 @@ export class Game {
       const k = (now - f.t0) / f.dur, a = 1 - k, rgb = f.rgb ?? this.rgbOf(f.kind);
       const def = NOMBRES[f.kind] ?? Object.values(FOCOS).find((x) => x.insc.id === f.kind)?.insc;
       const type = f.kind === 'arco' ? 'cono' : def?.shape.type;
-      if (f.kind === 'estocada') {
+      if (f.kind === 'portal-shift') {
+        // Portal relocalizado: destello violeta que se abre donde estaba y donde aparece.
+        const R = 60 + 220 * k;
+        g.strokeStyle = `rgba(200,150,255,${a * 0.9})`; g.lineWidth = 10 * a + 2;
+        g.beginPath(); g.arc(f.x, f.y - 60, R, 0, 6.283); g.stroke();
+        g.globalAlpha = a; g.drawImage(art.dot.violet, f.x - R, f.y - 60 - R, R * 2, R * 2); g.globalAlpha = 1;
+      } else if (f.kind === 'estocada') {
         // Estocada: una franja recta que sale y se desvanece.
         const L = (f.r ?? 150) * Math.min(1, k * 2.5), w = Math.max(14, f.w ?? 30);
         g.strokeStyle = `rgba(${rgb},${a * 0.85})`; g.lineWidth = w * a + 2; g.lineCap = 'round';
@@ -990,18 +1097,18 @@ export class Game {
       let name: string, left: number, total: number, id: string;
       if (slot === 'S') { const f = FOCOS[this.build.focos[this.foco]]; name = f.name; id = f.id; left = this.swapUntil - now; total = SWAP_MS; }
       else { const ab = abilityFor(this.build, this.foco, slot); name = ab.name; id = ab.id; left = Math.max((this.cdById[ab.id] ?? 0) - now, this.gcdUntil - now); total = Math.max(ab.cd * 1000, GCD_MS); }
-      const nm = el.querySelector<HTMLElement>('.ab-name'); if (nm && nm.textContent !== name) nm.textContent = name;
+      const nm = el.querySelector<HTMLElement>('.ab-name'); if (nm) setText(nm, name);
       if (el.title !== name) el.title = name;
       // El ícono de tiza sale de la hoja de estilos según la habilidad o el Foco.
       if (el.dataset.ability !== id) el.dataset.ability = id;
       const cd = el.querySelector<HTMLElement>('.ab-cd');
       if (cd) {
         const p = left > 0 ? Math.min(1, left / total) : 0;
-        cd.style.setProperty('--p', p.toFixed(3));
-        const txt = left > 400 ? String(Math.ceil(left / 1000)) : '';
-        if (cd.textContent !== txt) cd.textContent = txt;
+        // Solo cambia cuando avanza al menos un 1 %: así no se repinta el botón en cada cuadro.
+        setStyle(cd, '--p', (Math.round(p * 100) / 100).toString());
+        setText(cd, left > 400 ? String(Math.ceil(left / 1000)) : '');
       }
-      el.dataset.ready = String(left <= 0);
+      setData(el, 'ready', String(left <= 0));
     }
   }
 
