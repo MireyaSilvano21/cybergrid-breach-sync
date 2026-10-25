@@ -9,14 +9,17 @@ Videojuego web multijugador de extracción en tiempo real. Canvas 2D en el clien
 | Arquitectura de red y sockets | `server/src/index.ts` (WebSocket en `/ws`, solo con token), `server/src/game.ts` (posiciones, colisiones, daño y extracción calculados en el servidor a 30 Hz). Ping/pong cada 2 s medido en un Web Worker, latencia visible en el HUD. Compensación de lag en los golpes (el servidor revisa contra lo que vio el atacante, máx. 250 ms), ataque predicho en el cliente y búfer de interpolación adaptable a la variación de la red. |
 | Motor Canvas 2D y controles | `client/src/game.ts`: bucle con *delta time* (`requestAnimationFrame`), interpolación de jugadores remotos y predicción local con reconciliación por comandos (`shared/src/prediction.ts`: el servidor aplica cada tramo de movimiento en orden y confirma hasta cuál llegó; el cliente reaplica lo pendiente, así que no hay tirones aunque la red varíe). `client/src/input.ts`: teclado/mouse en PC; joystick y botones táctiles que solo aparecen en pantallas táctiles. |
 | Endpoints de prueba | `GET /api/test/telemetry` (Win Rate, KDR, supervivencia y valor promedio extraído; agregados O(1)) y `POST /api/test/seed` (100–1000 partidas, validado con Zod). |
-| Pruebas y CI | 66 pruebas en Vitest (`shared/test`, `server/test`), 8 flujos en Playwright (`e2e/`: acceso, lobbies, canvas en PC y móvil, arrastre táctil, saqueo y combate), pipeline en `.github/workflows/ci.yml` en cada Pull Request. |
+| Pruebas y CI | 76 pruebas en Vitest (`shared/test`, `server/test`), 9 flujos en Playwright (`e2e/`: acceso, lobbies, equipos, canvas en PC y móvil, arrastre táctil, saqueo y combate), pipeline en `.github/workflows/ci.yml` en cada Pull Request. |
 | Despliegue | `render.yaml` (Render, un solo servicio con SSL). |
 
 ## Bucle de juego actual
 
 Cada equipo aparece junto a un cofre. Los cofres salen de las plantillas de sala y su tipo depende de la función de la sala: Cofre de la Forja en llegadas y galerías, Sarcófago Rúnico en los osarios, Arcón Ornamentado en santuarios y bóvedas (3 objetos, tabla rara) y un único Relicario Antiguo en el Corazón (4 objetos). Cada uno tiene tres estados: cerrado, abierto y vacío. Con **F** (o el botón **Usar** en móvil) se abre el cofre y con otra pulsación se toma el botín, que va a una mochila de 10 casillas validada en el servidor. Al morir, el botín queda en el suelo como **Restos** que cualquiera puede saquear; al extraer por un portal abierto, su valor se registra en la telemetría.
 
-### Combate estilo Albion
+### Equipos
+
+Hasta 4 equipos por sala (Ámbar, Violeta, Jade y Carmín) de hasta 3 jugadores; también se puede ir en dúo o solo. Quien entra a la sala va al equipo con menos jugadores (dos personas que no eligen quedan como rivales) y en el lobby puede cambiarse con **Unirme**. En la partida cada equipo sale de su propia llegada (con dos equipos, de lados opuestos del mapa), no hay daño entre compañeros, solo se puede fijar a rivales y los compañeros se ven siempre: color de faja y nombre, panel con su vida bajo la propia y flechas en el borde de la pantalla cuando no están a la vista. Los resultados se agrupan por equipo con el botín que sacaron entre todos.
+
 
 `shared/src/abilities.ts` define Focos (armas) y Nombres (habilidades de escuela). El ataque básico es **automático sobre un objetivo fijado** (clic sobre un enemigo, Tab el más cercano; en móvil, el botón Atacar) y se revisa con compensación de lag. Q y E son los Nombres de la escuela y R la Inscripción del Foco en la mano; salen al instante hacia el cursor (en móvil, tocar lanza rápido y arrastrar apunta). Espacio cambia de Foco. El servidor valida recargas, recarga global de 0.3 s, alcance y línea de vista; la embestida se autoriza en el servidor y el cliente la predice con los mismos tramos de movimiento. Build de prueba: Tharvén (Llamar a la Piedra y Temblor) con Vara de Fresno y Anillo de Ámbar.
 

@@ -64,7 +64,8 @@
             <p class="vacio">Elige una sala de la izquierda o abre la tuya. Cuando todos marquen <b>Listo</b>, empieza la partida.</p>
             <aside id="room-panel" hidden>
               <h3 id="room-title"></h3>
-              <ul id="room-players" class="list"></ul>
+              <p class="ayuda">Elige equipo: hasta 3 por equipo, también puedes ir en dúo o solo.</p>
+              <div id="room-players" class="equipos"></div>
               <div class="row">
                 <button id="ready-btn" class="primary" aria-pressed="false">Listo</button>
                 <button id="leave-btn">Salir de la sala</button>
@@ -82,6 +83,7 @@
       <div class="vida">
         <div class="vida-fila"><span class="ico ico-corazon" aria-hidden="true"></span><div class="hp"><div id="hp-bar"></div></div><span id="hp-text" class="num">100</span></div>
         <div class="red"><span id="ping" class="mono">— ms</span><span id="fps" class="mono"></span></div>
+        <div id="aliados" class="aliados" aria-label="Compañeros"></div>
       </div>
       <div class="brujula"><span id="phase"></span><span id="timer" class="mono"></span></div>
     </div>
