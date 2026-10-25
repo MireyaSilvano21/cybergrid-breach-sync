@@ -3,7 +3,7 @@ import {
   FOCOS, NOMBRES, DEFAULT_BUILD, abilityFor, clampAim, fanDirections, blinkTarget, dashMulFor, reloadAmmo, solidAt, AMMO_MAX, GCD_MS, SWAP_MS, DASH_S, DASH_MUL,
   type Build, type Slot, type Shape, type ProjectileDef,
   animate, appearanceFor, BODIES, type Appearance, type AnimInput, type ActionKind, type View,
-  TEAMS,
+  TEAMS, RESONANCE,
   type GridMap, type TimedPosition,
 } from '@shared/index';
 import type { Net } from './net';
@@ -11,7 +11,7 @@ import { Input, type AimSlot, type Drag } from './input';
 import { Sprites, isDeepWall, drawDiagWall, drawThinCracks, drawCover, drawBars, drawBrazier, buildFloorChunk, buildWall, wallKey, buildDecor, drawGrass, glowP, CHUNK, WALL_RISE, INK, type FloorChunk, type Decor } from './art';
 import { drawCharacter } from './rig';
 
-interface Remote { id: string; name: string; buf: TimedPosition[]; hp: number; ax: number; ay: number; atk: boolean; seen: number; lx: number; ly: number; walk: number; flash: number; foco?: string; slow?: boolean; root?: boolean; invis?: boolean; rev?: boolean; team?: number; swingAt: number; shotAt: number; castAt: number; mv: number; drawT: number }
+interface Remote { id: string; name: string; buf: TimedPosition[]; hp: number; ax: number; ay: number; atk: boolean; seen: number; lx: number; ly: number; walk: number; flash: number; foco?: string; slow?: boolean; root?: boolean; invis?: boolean; rev?: boolean; mark?: boolean; team?: number; swingAt: number; shotAt: number; castAt: number; mv: number; drawT: number }
 interface Fx { kind: string; x: number; y: number; dx?: number; dy?: number; r?: number; x2?: number; y2?: number; ang?: number; w?: number; rgb?: string; t0: number; dur: number }
 /** Disparo propio predicho: se dibuja desde que sale, sin esperar al servidor. */
 interface MyShot { n: number; kind: string; x0: number; y0: number; dx: number; dy: number; speed: number; radius: number; range: number; t0: number; seen: boolean; dead: boolean; pierce: boolean }
@@ -168,7 +168,9 @@ export class Game {
   private fxs: Fx[] = [];
   private abEls: HTMLElement[] = [];
   private floaters: { x: number; y: number; text: string; t0: number; id?: string; heal?: boolean }[] = [];
-  private portals: { x: number; y: number; open: boolean }[] = [];
+  private portals: { x: number; y: number; open: boolean; u?: number }[] = [];
+  /** Resonancia del equipo propio (null fuera de la Primera y Segunda Llamada): barra, marca, anillo y multiplicador. */
+  private res: { v: number; m: boolean; z: 'near' | 'far' | null; k: number } | null = null;
   private chests: { id: string; k?: ChestKind; x: number; y: number; s: 'closed' | 'open' | 'empty' }[] = [];
   private remains: { id: string; x: number; y: number; owner: string }[] = [];
   private inv: string[] = [];
@@ -200,7 +202,7 @@ export class Game {
     this.me.x = this.pred.x = this.cam.x = start.x;
     this.me.y = this.pred.y = this.cam.y = start.y;
     const q = (id: string) => root.querySelector<HTMLElement>('#' + id)!;
-    this.el = { hpBar: q('hp-bar'), hpText: q('hp-text'), phase: q('phase'), timer: q('timer'), ping: q('ping'), fps: q('fps'), sync: q('sync'), syncBar: q('sync-bar'), state: q('player-state'), toast: q('toast'), inv: q('inventory'), invSlots: q('inv-slots'), invValue: q('inv-value') };
+    this.el = { hpBar: q('hp-bar'), hpText: q('hp-text'), phase: q('phase'), timer: q('timer'), ping: q('ping'), fps: q('fps'), sync: q('sync'), syncBar: q('sync-bar'), state: q('player-state'), toast: q('toast'), inv: q('inventory'), invSlots: q('inv-slots'), invValue: q('inv-value'), reso: q('resonance'), resoBar: q('reso-bar'), resoTxt: q('reso-txt') };
     Game.loadSprites();
     this.renderInventory([]);
     const names = (ids: string[]) => ids.map((id) => ITEMS[id]?.name ?? id).join(', ');
@@ -353,7 +355,7 @@ export class Game {
     if (m.you.hp < this.me.hp && m.you.alive) { this.hurtAt = now; this.shake = Math.max(this.shake, 10); }
     if (this.me.alive && !m.you.alive) this.deadAt = now;
     Object.assign(this.me, { hp: m.you.hp, alive: m.you.alive, extracted: m.you.extracted });
-    this.portals = m.portals; this.collapseR = m.collapseR;
+    this.portals = m.portals; this.collapseR = m.collapseR; this.res = m.res ?? null;
     // Mismos sellos que el servidor, según la fase (la física predicha debe coincidir).
     const later = ['primera-llamada', 'segunda-llamada', 'cierre-portal-1', 'desnombrar', 'fin'];
     this.map.sealsOpen.vault = later.includes(m.phase);
@@ -366,7 +368,7 @@ export class Game {
       if (!r) { r = { id: o.id, name: o.name, buf: [], hp: o.hp, ax: o.ax, ay: o.ay, atk: o.atk, seen: now, lx: o.x, ly: o.y, walk: 0, flash: -1e9, swingAt: -1e9, shotAt: -1e9, castAt: -1e9, mv: 0, drawT: now }; this.remotes.set(o.id, r); }
       r.buf.push({ x: o.x, y: o.y, t: now }); if (r.buf.length > 20) r.buf.shift();
       if (o.atk && !r.atk) this.remoteAttack(r, o);
-      Object.assign(r, { hp: o.hp, ax: o.ax, ay: o.ay, atk: o.atk, seen: now, foco: o.foco, slow: o.slow, root: o.root, invis: o.invis, rev: o.rev, team: o.team });
+      Object.assign(r, { hp: o.hp, ax: o.ax, ay: o.ay, atk: o.atk, seen: now, foco: o.foco, slow: o.slow, root: o.root, invis: o.invis, rev: o.rev, mark: o.mark, team: o.team });
     }
     for (const [id, r] of this.remotes) if (now - r.seen > 500) this.remotes.delete(id);
     this.syncCombat(m, now);
@@ -380,6 +382,19 @@ export class Game {
     const syncing = m.you.sync > 0;
     if (this.el.sync.hidden === syncing) this.el.sync.hidden = !syncing;
     if (syncing) setStyle(this.el.syncBar, 'width', `${Math.round(Math.min(100, (m.you.sync / m.you.syncNeed) * 100))}%`);
+    this.updateResonanceHud();
+  }
+
+  /** Barra de Resonancia bajo la fase: solo mientras está activa; roja y con aviso si el equipo está marcado. */
+  private updateResonanceHud() {
+    const r = this.res, box = this.el.reso;
+    if (box.hidden !== !r) box.hidden = !r;
+    if (!r) return;
+    setStyle(this.el.resoBar, 'width', `${Math.round(r.v)}%`);
+    setData(box, 'value', String(Math.round(r.v)));
+    setData(box, 'marked', String(r.m));
+    setData(box, 'zone', r.z ?? '');
+    setText(this.el.resoTxt, r.m ? '¡Marcados por la Resonancia!' : r.z ? `Resonancia ×${r.k}` : 'Resonancia');
   }
 
   private loop = (t: number) => {
@@ -661,8 +676,9 @@ export class Game {
       const lab = labelSprite(r.name, ally ? tc : '#e2c8ff');
       g.drawImage(lab, x - lab.width / 4, y - 85 - 9, lab.width / 2, lab.height / 2);
     }
-    // Rivales revelados (Escuchar al Viento): marca roja que se ve aunque estén en la oscuridad.
+    // Rivales revelados (Escuchar al Viento, la Resonancia o el portal): marca roja que se ve aunque estén en la oscuridad.
     for (const { r, x, y } of remotesNow) {
+      if (r.mark) this.drawResonanceMark(x, y - 112, t);
       if (!r.rev) continue;
       const pulse = 1 + Math.sin(t / 120) * 0.08;
       g.strokeStyle = 'rgba(255,90,90,.9)'; g.lineWidth = 3; g.beginPath(); g.ellipse(x, y, 30 * pulse, 12 * pulse, 0, 0, 6.283); g.stroke();
@@ -692,16 +708,26 @@ export class Game {
     if (P) { P.push(performance.now()); const w = window as any; w.__cgPerf ??= []; w.__cgPerf.push(P.slice(1).map((x, i) => x - P[i])); if (w.__cgPerf.length > 300) w.__cgPerf.shift(); }
   }
 
-  /** Flechas en el borde de la pantalla hacia los compañeros que no se ven (espacio de pantalla). */
+  /** Ojo de la Resonancia sobre un rival marcado. */
+  private drawResonanceMark(x: number, y: number, t: number) {
+    const g = this.ctx, k = 1 + Math.sin(t / 140) * 0.1;
+    g.save(); g.translate(x, y); g.scale(k, k);
+    g.lineWidth = 3; g.strokeStyle = INK; g.fillStyle = '#ff5a5a';
+    g.beginPath(); g.moveTo(-14, 0); g.quadraticCurveTo(0, -12, 14, 0); g.quadraticCurveTo(0, 12, -14, 0); g.closePath(); g.fill(); g.stroke();
+    g.fillStyle = '#ffd36a'; g.beginPath(); g.arc(0, 0, 4.5, 0, 6.283); g.fill(); g.stroke();
+    g.restore();
+  }
+
+  /** Flechas en el borde de la pantalla hacia los compañeros (y rivales marcados) que no se ven. */
   private drawAllyArrows(remotes: { r: Remote; x: number; y: number }[]) {
     const g = this.ctx, m = 34;
     for (const { r, x, y } of remotes) {
-      if (this.isEnemy(r)) continue;
+      if (this.isEnemy(r) && !r.mark) continue;
       const s = this.screenOf(x, y - 30);
       if (s.x > m && s.x < this.W - m && s.y > m && s.y < this.H - m) continue;
       const cx = this.W / 2, cy = this.H / 2, dx = s.x - cx, dy = s.y - cy;
       const k = Math.min((this.W / 2 - m) / Math.abs(dx || 1e-6), (this.H / 2 - m) / Math.abs(dy || 1e-6));
-      const ex = cx + dx * k, ey = cy + dy * k, a = Math.atan2(dy, dx), c = teamColor(r.team, '#fff');
+      const ex = cx + dx * k, ey = cy + dy * k, a = Math.atan2(dy, dx), c = this.isEnemy(r) ? '#ff5a5a' : teamColor(r.team, '#fff');
       g.save(); g.translate(ex, ey); g.rotate(a);
       g.beginPath(); g.moveTo(14, 0); g.lineTo(-8, -10); g.lineTo(-4, 0); g.lineTo(-8, 10); g.closePath();
       g.fillStyle = c; g.strokeStyle = INK; g.lineWidth = 3; g.lineJoin = 'round'; g.stroke(); g.fill();
@@ -731,8 +757,10 @@ export class Game {
   }
 
   /** Estado visual del portal: el último portal se ve colapsando durante El Desnombrar. */
-  private portalState(p: { x: number; y: number; open: boolean }): 'apagado' | 'abierto' | 'colapsando' {
+  private portalState(p: { x: number; y: number; open: boolean; u?: number }): 'apagado' | 'abierto' | 'colapsando' {
     if (!p.open) return 'apagado';
+    // Inestable por la Resonancia: parpadea entre abierto y colapsando, más rápido cuanto más cerca de moverse.
+    if ((p.u ?? 0) > 0.3) return Math.sin(performance.now() / (220 - 160 * (p.u ?? 0))) > 0 ? 'colapsando' : 'abierto';
     return this.collapseR != null && p === this.portals[1] ? 'colapsando' : 'abierto';
   }
 
@@ -863,7 +891,7 @@ export class Game {
   }
 
   private addFx(kind: string, x: number, y: number, o: Partial<Fx> = {}) {
-    const dur = kind === 'arco' || kind === 'estocada' ? 240 : kind === 'escuchar' ? 900 : 520;
+    const dur = kind === 'arco' || kind === 'estocada' ? 240 : kind === 'escuchar' || kind === 'portal-shift' ? 900 : 520;
     this.fxs.push({ kind, x, y, ...o, t0: performance.now(), dur });
     if (this.fxs.length > 80) this.fxs.shift();
   }
@@ -908,6 +936,31 @@ export class Game {
     }
     if (this.slowMul < 1 && !this.rooted) ring(this.me.x, this.me.y, 'rgba(140,210,255,.75)');
     if (this.rooted) { g.setLineDash([6, 5]); ring(this.me.x, this.me.y, 'rgba(120,230,140,.9)', 30); g.setLineDash([]); }
+    this.drawResonanceRings(sec);
+  }
+
+  /**
+   * Anillos de Resonancia alrededor de los portales abiertos (círculos reales: son las distancias que
+   * mide el servidor). Violeta normal; rojo si tu equipo está marcado o el portal se está volviendo inestable.
+   */
+  private drawResonanceRings(sec: number) {
+    if (!this.res) return;
+    const g = this.ctx, mine = this.res.m;
+    for (const p of this.portals) {
+      if (!p.open) continue;
+      const u = p.u ?? 0, hot = mine || u > 0;
+      const rgb = hot ? '255,80,90' : '190,150,255', flick = u > 0 ? 0.7 + 0.3 * Math.sin(sec * (8 + 20 * u)) : 1;
+      g.lineWidth = 4; g.setLineDash([18, 12]); g.lineDashOffset = -sec * 14;
+      g.strokeStyle = `rgba(${rgb},${0.5 * flick})`; g.beginPath(); g.arc(p.x, p.y, RESONANCE.nearRadius, 0, 6.283); g.stroke();
+      g.lineWidth = 3; g.setLineDash([6, 14]); g.lineDashOffset = sec * 8;
+      g.strokeStyle = `rgba(${rgb},${0.28 * flick})`; g.beginPath(); g.arc(p.x, p.y, RESONANCE.farRadius, 0, 6.283); g.stroke();
+    }
+    g.setLineDash([]); g.lineDashOffset = 0;
+    // Tu equipo marcado: halo rojo que late bajo tus pies.
+    if (mine && this.me.alive && !this.me.extracted) {
+      const k = 1 + Math.sin(sec * 6) * 0.08;
+      g.strokeStyle = 'rgba(255,70,80,.85)'; g.lineWidth = 4; g.beginPath(); g.ellipse(this.me.x, this.me.y + 2, 34 * k, 13 * k, 0, 0, 6.283); g.stroke();
+    }
   }
 
   /** Color de magia (r,g,b) de un proyectil o efecto por su id. */
@@ -948,7 +1001,13 @@ export class Game {
       const k = (now - f.t0) / f.dur, a = 1 - k, rgb = f.rgb ?? this.rgbOf(f.kind);
       const def = NOMBRES[f.kind] ?? Object.values(FOCOS).find((x) => x.insc.id === f.kind)?.insc;
       const type = f.kind === 'arco' ? 'cono' : def?.shape.type;
-      if (f.kind === 'estocada') {
+      if (f.kind === 'portal-shift') {
+        // Portal relocalizado: destello violeta que se abre donde estaba y donde aparece.
+        const R = 60 + 220 * k;
+        g.strokeStyle = `rgba(200,150,255,${a * 0.9})`; g.lineWidth = 10 * a + 2;
+        g.beginPath(); g.arc(f.x, f.y - 60, R, 0, 6.283); g.stroke();
+        g.globalAlpha = a; g.drawImage(art.dot.violet, f.x - R, f.y - 60 - R, R * 2, R * 2); g.globalAlpha = 1;
+      } else if (f.kind === 'estocada') {
         // Estocada: una franja recta que sale y se desvanece.
         const L = (f.r ?? 150) * Math.min(1, k * 2.5), w = Math.max(14, f.w ?? 30);
         g.strokeStyle = `rgba(${rgb},${a * 0.85})`; g.lineWidth = w * a + 2; g.lineCap = 'round';

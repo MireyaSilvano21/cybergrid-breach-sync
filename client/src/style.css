@@ -145,6 +145,16 @@ button:focus-visible,input:focus-visible{outline:3px solid var(--gold-l);outline
 .brujula::after{content:"";position:absolute;top:13px;left:50%;margin-left:-6px;border:6px solid transparent;border-bottom:8px solid var(--chalk-gold);border-top:none}
 #phase{font-weight:700;font-size:1.3rem;letter-spacing:.04em}
 #timer{font-size:1.1rem;color:var(--chalk-gold)}
+/* Resonancia: barra violeta bajo el tiempo; brilla en el anillo cercano y se vuelve roja al marcar al equipo. */
+.reso{display:grid;justify-items:center;gap:3px;margin-top:4px;pointer-events:none}
+.reso[hidden]{display:none}
+.reso-carril{position:relative;width:min(200px,40vw);height:10px;background:rgba(190,150,255,.22);border-radius:4px;-webkit-mask:var(--tiza) 0 0/256px;mask:var(--tiza) 0 0/256px}
+#reso-bar{height:100%;width:0;background:#be96ff;transition:width .2s}
+.reso-txt{font-family:var(--sketch);font-size:.85rem;color:#d9c4ff;text-shadow:0 0 6px #000}
+.reso[data-zone="near"] #reso-bar{background:#d8b8ff;box-shadow:0 0 8px #be96ff}
+.reso[data-marked="true"] #reso-bar{background:#ff5a64}
+.reso[data-marked="true"] .reso-txt{color:#ff7a80;font-weight:700;animation:reso-late 1s ease-in-out infinite}
+@keyframes reso-late{50%{opacity:.55}}
 
 /* Barra de habilidades (PC): recuadros de tiza con ícono, tecla y recarga. */
 .abil{position:absolute;left:50%;transform:translateX(-50%);bottom:calc(104px + env(safe-area-inset-bottom));display:flex;gap:12px;pointer-events:none}

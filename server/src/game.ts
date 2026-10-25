@@ -7,6 +7,7 @@ import {
   type Build, type Slot, type AbilityDef, type Effect, type ProjectileDef,
   type GridMap, type InputMessage, type MatchRecord, type PhaseConfig,
   type ChestKind, teamSpawns, buildFromProfile, appearanceOf, type Profile, type Appearance,
+  RESONANCE, TEAMS, newTeamResonance, stepTeamResonance, pickRelocation, zoneOf, timeMultiplier, type TeamResonance,
 } from '@shared/index';
 import { config } from './config';
 
@@ -26,6 +27,10 @@ interface Actor {
   moves: MoveQueue;
   attackAt: number;
   syncT: number;
+  /** Portal (0 o 1) con el que se sincroniza y hasta cuándo ese portal lo delata a los rivales en sus anillos. */
+  syncPortal: number; syncRevealUntil: number;
+  /** Escudo arcano de la Resonancia: cuánto se dio y cuándo se acaba. */
+  shieldGrant: number; shieldUntil: number;
   kills: number; deaths: number; endedAt: number | null;
   inventory: string[];
   pendingUse: boolean; pendingSwap: boolean;
@@ -54,6 +59,8 @@ interface Projectile {
 
 export interface Chest { id: string; kind: ChestKind; x: number; y: number; state: 'closed' | 'open' | 'empty'; items: string[] }
 export interface Remains { id: string; x: number; y: number; items: string[]; owner: string }
+/** Portal en la instantánea: posición, si está abierto y qué tan inestable está (0 a 1). */
+export interface PortalView { x: number; y: number; open: boolean; u: number }
 
 /** Radio en el que el servidor envía a otros jugadores: un poco más que la mitad de la diagonal visible (1280×640). */
 const VIEW_RADIUS = 760;
@@ -74,11 +81,17 @@ export class Match {
   private startedAt = Date.now();
   private timer: NodeJS.Timeout | null = null;
   private finished = false;
+  /** Candidato que ocupa cada portal (cambia cuando la Resonancia lo relocaliza). */
+  private portalIdx: [number, number];
+  /** Resonancia por equipo y segundos de inestabilidad de cada portal. */
+  private res = new Map<number, TeamResonance>();
+  private unstable: [number, number] = [0, 0];
 
   constructor(entries: (Conn | { conn: Conn; team: number; profile?: Profile })[], private onEnd: (record: MatchRecord) => void) {
     // Sin equipo indicado, cada jugador va solo (todos contra todos), como en las pruebas.
     const list = entries.map((e, i) => ('conn' in e ? e : { conn: e, team: i % 4, profile: undefined as Profile | undefined }));
     this.map = generateValidMap(this.seed, list.length);
+    this.portalIdx = [...this.map.portals];
     this.chests = placeChests(this.map).map((c) => ({ ...c, state: 'closed' as const }));
     const spawnOf = teamSpawns(list.map((e) => e.team), this.map.spawns.length);
     const placed = new Map<number, number>();
@@ -95,6 +108,7 @@ export class Match {
         conn, team, app: appearanceOf(profile, conn.id), x: sp.x + ox, y: sp.y + oy, ax: 0, ay: 1,
         hp: PLAYER.maxHp, shield: 0, alive: true, extracted: false,
         input: null, lastSeq: 0, moves: createMoveQueue(), attackAt: 0, syncT: 0,
+        syncPortal: -1, syncRevealUntil: 0, shieldGrant: 0, shieldUntil: 0,
         kills: 0, deaths: 0, endedAt: null,
         inventory: [], pendingUse: false, pendingSwap: false, history: [],
         build: buildFromProfile(profile), foco: 0, ammo: AMMO_MAX, nextShot: 0, cds: {}, gcdUntil: 0, swapReady: 0,
@@ -135,14 +149,19 @@ export class Match {
     if (a && a.alive && !a.extracted) { a.alive = false; a.endedAt = Date.now(); }
   }
 
-  private openPortals(t: number) {
+  private openPortals(t: number): PortalView[] {
     const ph = phaseAt(t, this.phases);
-    const [i1, i2] = this.map.portals;
+    const [i1, i2] = this.portalIdx;
+    const u = (i: number) => Math.round(Math.min(1, this.unstable[i] / RESONANCE.unstableSeconds) * 100) / 100;
     return [
-      { ...this.map.portalCandidates[i1], open: ph.portal1Open },
-      { ...this.map.portalCandidates[i2], open: ph.portal2Open },
+      { ...this.map.portalCandidates[i1], open: ph.portal1Open, u: u(0) },
+      { ...this.map.portalCandidates[i2], open: ph.portal2Open, u: u(1) },
     ];
   }
+
+  /** Lectura para pruebas: Resonancia de un equipo y candidato de cada portal. */
+  resonanceOf(team: number) { return this.res.get(team); }
+  portalSlots(): readonly [number, number] { return this.portalIdx; }
 
   /** Avanza la simulación un tick. Público para poder probarla sin temporizadores. */
   tick(now = Date.now()) {
@@ -176,6 +195,7 @@ export class Match {
         // Extracción: mantener interactuar junto a un portal abierto.
         const portal = portals.find((pt) => pt.open && Math.hypot(pt.x - a.x, pt.y - a.y) < PORTAL_RADIUS);
         if (portal && inp.interact) {
+          if (a.syncT === 0) this.startSync(a, portals.indexOf(portal), ph.resonanceActive, now);
           a.syncT += dt;
           if (a.syncT >= SYNC_SECONDS[1]) {
             a.extracted = true; a.endedAt = now;
@@ -185,6 +205,7 @@ export class Match {
         } else a.syncT = 0;
       }
       a.pendingUse = false; a.pendingSwap = false;
+      if (a.shieldUntil && now >= a.shieldUntil) { a.shield = Math.max(0, a.shield - a.shieldGrant); a.shieldGrant = 0; a.shieldUntil = 0; }
       if (a.knock) {
         const k = moveCircle(this.map, a, a.knock.vx * dt, a.knock.vy * dt, PLAYER.radius);
         a.x = k.x; a.y = k.y;
@@ -195,11 +216,99 @@ export class Match {
       }
     }
 
+    this.stepResonance(ph.resonanceActive, portals, dt, now);
     this.stepProjectiles(dt, now);
     for (const a of this.actors.values()) if (a.alive && !a.extracted) pushHistory(a.history, { t: now, x: a.x, y: a.y });
 
     if (ph.ended || [...this.actors.values()].every((a) => !a.alive || a.extracted)) return this.finish(now);
-    this.broadcast(t, ph.phase, portals, collapseR);
+    // Se vuelven a leer los portales: la Resonancia pudo relocalizar uno en este tick.
+    this.broadcast(t, ph.phase, this.openPortals(t), collapseR, ph.resonanceActive);
+  }
+
+  /** Distancia al portal abierto más cercano (Infinity si no hay ninguno abierto). */
+  private portalDistance(a: { x: number; y: number }, portals: PortalView[]) {
+    let d = Infinity;
+    for (const p of portals) if (p.open) d = Math.min(d, Math.hypot(p.x - a.x, p.y - a.y));
+    return d;
+  }
+
+  /**
+   * Al empezar a sincronizar: el portal delata al jugador unos segundos a los rivales en sus anillos
+   * y, si su equipo está marcado, le da un escudo arcano breve (GDD sección 4).
+   */
+  private startSync(a: Actor, slot: number, resonanceActive: boolean, now: number) {
+    a.syncPortal = slot;
+    if (!resonanceActive) return;
+    a.syncRevealUntil = now + RESONANCE.syncRevealMs;
+    if (this.res.get(a.team)?.marked && now >= a.shieldUntil) {
+      a.shield += RESONANCE.syncShield; a.shieldGrant = RESONANCE.syncShield; a.shieldUntil = now + RESONANCE.syncShieldMs;
+      a.conn.send({ type: 'notice', message: 'Escudo arcano: el portal te protege mientras te sincronizas' });
+    }
+  }
+
+  /**
+   * Resonancia del portal (anti-campeo): barra por equipo según presencia en los anillos, marca al
+   * llenarse, daño constante a los marcados dentro de los anillos y relocalización del portal si un
+   * equipo marcado sigue en el anillo cercano. El Desnombrar la apaga.
+   */
+  private stepResonance(active: boolean, portals: PortalView[], dt: number, now: number) {
+    if (!active) {
+      if (this.res.size) { this.res.clear(); this.unstable = [0, 0]; }
+      return;
+    }
+    const teams = new Map<number, Actor[]>();
+    for (const a of this.actors.values()) {
+      const list = teams.get(a.team) ?? []; teams.set(a.team, list);
+      if (a.alive && !a.extracted) list.push(a);
+    }
+    for (const [team, members] of teams) {
+      const presence = members.map((a) => ({ distance: this.portalDistance(a, portals), syncing: a.syncT > 0 }));
+      const { state, event } = stepTeamResonance(this.res.get(team) ?? newTeamResonance(), presence, dt);
+      this.res.set(team, state);
+      if (event === 'marked') this.announceMark(team);
+      else if (event === 'cleared') this.tellTeamId(team, 'La marca de la Resonancia se desvaneció');
+      if (!state.marked) continue;
+      // Marcados: daño constante mientras sigan dentro de los anillos (quien se sincroniza no lo recibe).
+      for (const a of members) {
+        if (a.alive && a.syncT === 0 && this.portalDistance(a, portals) <= RESONANCE.farRadius) this.hurt(a, RESONANCE.markedDps * dt, null, 'La Resonancia');
+      }
+    }
+    // El portal se defiende: un equipo marcado en su anillo cercano lo vuelve inestable.
+    portals.forEach((p, i) => {
+      if (!p.open) { this.unstable[i] = 0; return; }
+      let pressed = false;
+      for (const a of this.actors.values()) {
+        if (a.alive && !a.extracted && a.syncT === 0 && this.res.get(a.team)?.marked && Math.hypot(a.x - p.x, a.y - p.y) <= RESONANCE.nearRadius) { pressed = true; break; }
+      }
+      this.unstable[i] = pressed ? this.unstable[i] + dt : Math.max(0, this.unstable[i] - dt * 0.5);
+      if (this.unstable[i] >= RESONANCE.unstableSeconds) this.relocatePortal(i, p);
+    });
+  }
+
+  /** Cierra el portal inestable y lo abre en el candidato libre más alejado. */
+  private relocatePortal(slot: number, from: PortalView) {
+    this.unstable[slot] = 0;
+    const to = pickRelocation(this.map.portalCandidates, this.portalIdx);
+    if (to == null) return;
+    this.portalIdx[slot] = to;
+    const dest = this.map.portalCandidates[to];
+    // Quien se sincronizaba con ese portal pierde la sincronización.
+    for (const a of this.actors.values()) if (a.syncT > 0 && a.syncPortal === slot) a.syncT = 0;
+    this.fx('portal-shift', from.x, from.y);
+    this.fx('portal-shift', dest.x, dest.y);
+    for (const a of this.actors.values()) a.conn.send({ type: 'notice', message: `¡El portal ${slot + 1} se volvió inestable y reapareció en otro lugar!` });
+  }
+
+  private announceMark(team: number) {
+    const name = TEAMS[team]?.name ?? `${team + 1}`;
+    for (const a of this.actors.values()) {
+      a.conn.send({ type: 'notice', message: a.team === team ? '¡La Resonancia marcó a tu equipo! Todos los rivales los ven' : `La Resonancia marcó al equipo ${name}` });
+    }
+  }
+
+  /** Aviso a todo un equipo (por número). */
+  private tellTeamId(team: number, message: string) {
+    for (const a of this.actors.values()) if (a.team === team) a.conn.send({ type: 'notice', message });
   }
 
   /** Rivales vivos: los compañeros nunca reciben daño de habilidades, básicos ni proyectiles. */
@@ -386,14 +495,14 @@ export class Match {
     a.conn.send({ type: 'looted', items: r.taken, left: r.left.length });
   }
 
-  private hurt(b: Actor, dmg: number, by: Actor | null) {
+  private hurt(b: Actor, dmg: number, by: Actor | null, cause = 'El Desnombrar') {
     b.hp = applyHealth(b.hp, dmg);
     b.syncT = 0;
     if (b.hp <= 0 && b.alive) {
       b.alive = false; b.deaths++; b.endedAt = Date.now();
       if (by) by.kills++;
       this.dropRemains(b);
-      b.conn.send({ type: 'died', by: by?.conn.name ?? 'El Desnombrar' });
+      b.conn.send({ type: 'died', by: by?.conn.name ?? cause });
       this.tellTeam(b, `${b.conn.name} cayó`);
     }
   }
@@ -411,36 +520,46 @@ export class Match {
     return false;
   }
 
-  private broadcast(t: number, phase: string, portals: { x: number; y: number; open: boolean }[], collapseR: number) {
+  private broadcast(t: number, phase: string, portals: PortalView[], collapseR: number, resonanceActive = false) {
     const all = [...this.actors.values()], now = Date.now();
+    const marked = (team: number) => resonanceActive && !!this.res.get(team)?.marked;
+    const markedTeams = resonanceActive ? [...this.res].filter(([, s]) => s.marked).map(([team]) => team) : [];
     for (const a of all) {
       // Compañeros: siempre. Rivales: si se ven (o los revela el equipo); los invisibles solo de cerca.
+      // La Resonancia revela además a los equipos marcados (a todos) y a quien empieza a sincronizar
+      // (a los rivales dentro de los anillos de ese portal).
       const others = all
         .filter((b) => b !== a && b.alive && !b.extracted)
         .map((b) => {
-          if (b.team === a.team) return { b, rev: false };
-          const d = Math.hypot(b.x - a.x, b.y - a.y), rev = this.revealedTo(a.team, b, now);
+          if (b.team === a.team) return { b, rev: false, mark: false };
+          const sp = portals[b.syncPortal];
+          const portalRev = resonanceActive && now < b.syncRevealUntil && !!sp && Math.hypot(sp.x - a.x, sp.y - a.y) <= RESONANCE.farRadius;
+          const d = Math.hypot(b.x - a.x, b.y - a.y), mark = marked(b.team), rev = this.revealedTo(a.team, b, now) || mark || portalRev;
           const seen = d < VIEW_RADIUS && hasLineOfSight(this.map, a, b);
           if (!seen && !rev) return null;
           if (now < b.invisUntil && d > INVIS_NEAR && !rev) return null;
-          return { b, rev: rev && !seen };
+          return { b, rev: rev && !seen, mark };
         })
-        .filter((x): x is { b: Actor; rev: boolean } => !!x)
-        .map(({ b, rev }) => ({
+        .filter((x): x is { b: Actor; rev: boolean; mark: boolean } => !!x)
+        .map(({ b, rev, mark }) => ({
           id: b.conn.id, name: b.conn.name, team: b.team, x: Math.round(b.x), y: Math.round(b.y), hp: b.hp, ax: b.ax, ay: b.ay,
           atk: now - b.attackAt < 200, foco: b.build.focos[b.foco], slow: now < b.slowUntil, root: now < b.rootUntil,
-          invis: now < b.invisUntil, rev,
+          invis: now < b.invisUntil, rev, mark,
         }));
+      const st = this.res.get(a.team);
+      const res = resonanceActive && st ? {
+        v: Math.round(st.value), m: st.marked, z: a.alive && !a.extracted ? zoneOf(this.portalDistance(a, portals)) : null, k: timeMultiplier(st.zoneT),
+      } : null;
       const allies = all.filter((b) => b !== a && b.team === a.team).map((b) => ({ id: b.conn.id, name: b.conn.name, hp: Math.ceil(b.hp), alive: b.alive, extracted: b.extracted }));
       const cd = (slot: Slot) => Math.max(0, Math.round((a.cds[abilityFor(a.build, a.foco, slot).id] ?? 0) - now));
       a.conn.send({
         type: 'snap', t: now, time: Math.round(t * 10) / 10, phase,
         timeLeft: Math.max(0, Math.round(this.phases.fin - t)),
-        portals, collapseR: Number.isFinite(collapseR) ? Math.round(collapseR) : null,
+        portals, collapseR: Number.isFinite(collapseR) ? Math.round(collapseR) : null, res, marked: markedTeams,
         chests: this.chests.filter((c) => Math.hypot(c.x - a.x, c.y - a.y) < VIEW_RADIUS).map((c) => ({ id: c.id, k: c.kind, x: c.x, y: c.y, s: c.state })),
         remains: this.remains.filter((r) => Math.hypot(r.x - a.x, r.y - a.y) < VIEW_RADIUS).map((r) => ({ id: r.id, x: Math.round(r.x), y: Math.round(r.y), owner: r.owner })),
         you: {
-          x: a.x, y: a.y, hp: a.hp, team: a.team, alive: a.alive, extracted: a.extracted, sync: a.syncT, syncNeed: SYNC_SECONDS[1], seq: a.lastSeq, ack: a.moves.ack, ackRem: a.moves.ackRem,
+          x: a.x, y: a.y, hp: a.hp, shield: Math.round(a.shield), team: a.team, alive: a.alive, extracted: a.extracted, sync: a.syncT, syncNeed: SYNC_SECONDS[1], seq: a.lastSeq, ack: a.moves.ack, ackRem: a.moves.ackRem,
           kills: a.kills, atk: now - a.attackAt < 200, attackAt: a.attackAt, inv: a.inventory,
           foco: a.foco, build: a.build, ammo: Math.round(a.ammo * 100) / 100, nextShot: Math.max(0, a.nextShot - now),
           slow: now < a.rootUntil ? 0 : now < a.slowUntil ? SLOW_MUL : 1, root: now < a.rootUntil, invis: now < a.invisUntil, reveal: now < a.revealUntil,
