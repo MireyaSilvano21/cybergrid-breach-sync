@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { MAX_PLAYERS, autoTeam, canJoinTeam, type InputMessage, type MatchRecord } from '@shared/index';
+import { MAX_PLAYERS, autoTeam, canJoinTeam, type InputMessage, type MatchRecord, type Profile } from '@shared/index';
 import { config } from './config';
 import { Match, type Conn } from './game';
 
@@ -9,6 +9,8 @@ export interface Room {
   members: Map<string, Member>;
   state: 'lobby' | 'playing';
   match: Match | null;
+  /** Salas que arma el emparejamiento: no salen en la lista y se borran al terminar. */
+  hidden?: boolean;
 }
 
 /** Salas (lobbies): creación, unión protegida con contraseña, estado "Listo" e inicio de partida. */
@@ -16,7 +18,7 @@ export class RoomManager {
   private rooms = new Map<string, Room>();
   private where = new Map<string, string>(); // connId -> roomId
 
-  constructor(private onMatchEnd: (r: MatchRecord) => void) {}
+  constructor(private onMatchEnd: (r: MatchRecord) => void, private profileOf: (connId: string) => Profile | undefined = () => undefined) {}
 
   create(name: string, host: string, password?: string): Room {
     const room: Room = { id: randomUUID().slice(0, 8), name, password: password || undefined, host, members: new Map(), state: 'lobby', match: null };
@@ -25,12 +27,12 @@ export class RoomManager {
   }
 
   list() {
-    return [...this.rooms.values()].map((r) => ({ id: r.id, name: r.name, players: r.members.size, max: MAX_PLAYERS, locked: !!r.password, state: r.state }));
+    return [...this.rooms.values()].filter((r) => !r.hidden).map((r) => ({ id: r.id, name: r.name, players: r.members.size, max: MAX_PLAYERS, locked: !!r.password, state: r.state }));
   }
 
   join(conn: Conn, roomId: string, password?: string): string | null {
     const room = this.rooms.get(roomId);
-    if (!room) return 'La sala no existe.';
+    if (!room || room.hidden) return 'La sala no existe.';
     if (room.password && room.password !== password) return 'Contraseña de sala incorrecta.';
     if (room.state !== 'lobby') return 'La partida ya empezó.';
     if (room.members.size >= MAX_PLAYERS) return 'La sala está llena.';
@@ -79,6 +81,17 @@ export class RoomManager {
     return null;
   }
 
+  /** ¿Está en una sala (privada o de emparejamiento)? */
+  busy(connId: string) { return this.where.has(connId); }
+
+  /** Partida del emparejamiento: sala oculta con los equipos ya armados. */
+  startQueued(entries: { conn: Conn; team: number }[], onEnd: () => void) {
+    const room = this.create('Emparejamiento', entries[0]?.conn.name ?? '');
+    room.hidden = true;
+    for (const e of entries) { this.leave(e.conn.id); room.members.set(e.conn.id, { conn: e.conn, ready: true, team: e.team }); this.where.set(e.conn.id, room.id); }
+    this.startMatch(room, onEnd);
+  }
+
   input(connId: string, msg: InputMessage) { this.roomOf(connId)?.match?.handleInput(connId, msg); }
 
   roomOf(connId: string): Room | undefined {
@@ -86,16 +99,23 @@ export class RoomManager {
     return id ? this.rooms.get(id) : undefined;
   }
 
-  private startMatch(room: Room) {
+  private startMatch(room: Room, onEnd?: () => void) {
     room.state = 'playing';
-    room.match = new Match([...room.members.values()].map((m) => ({ conn: m.conn, team: m.team })), (record) => {
+    room.match = new Match([...room.members.values()].map((m) => ({ conn: m.conn, team: m.team, profile: this.profileOf(m.conn.id) })), (record) => {
       this.onMatchEnd(record);
+      if (room.hidden) {
+        // Al terminar, cada quien vuelve a su campamento con su escuadra.
+        for (const id of room.members.keys()) this.where.delete(id);
+        this.rooms.delete(room.id);
+        onEnd?.();
+        return;
+      }
       room.state = 'lobby';
       room.match = null;
       for (const m of room.members.values()) m.ready = false;
       this.broadcastLobby(room);
     });
-    this.broadcastLobby(room);
+    if (!room.hidden) this.broadcastLobby(room);
     room.match.start();
   }
 

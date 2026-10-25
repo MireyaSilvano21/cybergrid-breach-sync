@@ -37,7 +37,12 @@
   <main id="screen-lobby" class="screen panel-screen" hidden>
     <div class="lobby">
       <header class="lobby-head placa">
-        <h2>Salas</h2>
+        <h2>CyberGrid</h2>
+        <nav class="tabs" role="tablist" aria-label="Secciones">
+          <button type="button" role="tab" data-tab="campamento" aria-selected="true">Campamento</button>
+          <button type="button" role="tab" data-tab="preparacion" aria-selected="false">Preparación</button>
+          <button type="button" role="tab" data-tab="privadas" aria-selected="false">Partidas privadas</button>
+        </nav>
         <div class="status">
           <span id="socket-status" data-state="disconnected">Desconectado</span>
           <span id="lobby-ping" class="mono">— ms</span>
@@ -45,7 +50,62 @@
           <button id="logout-btn" class="link">Salir</button>
         </div>
       </header>
-      <section class="libro">
+
+      <section class="campamento tab" data-tab="campamento">
+        <div class="escena">
+          <canvas id="camp-canvas" aria-label="Tu escuadra en el campamento"></canvas>
+          <div class="despliegue">
+            <p class="mapa"><b>La Grid</b> · Forja Apagada · hasta 4 equipos de 3</p>
+            <p id="queue-status" class="cola" aria-live="polite"></p>
+            <button id="deploy-btn" type="button" class="grande primary">Entrar a la Grid</button>
+          </div>
+        </div>
+        <aside class="hoja escuadra">
+          <h3>Tu escuadra</h3>
+          <p class="codigo">Código: <b id="party-code">—</b> <button id="party-copy" type="button" class="mini">Copiar</button></p>
+          <ul id="party-members" class="list"></ul>
+          <button id="party-leave" type="button" class="mini" hidden>Salir de la escuadra</button>
+          <h3 class="sep">Unirse a una escuadra</h3>
+          <form id="party-join-form" class="row" novalidate>
+            <input id="party-code-input" placeholder="Código (5 letras)" maxlength="5" autocomplete="off" />
+            <button type="submit" class="mini">Unirme</button>
+          </form>
+          <p id="party-error" class="error" role="alert"></p>
+          <h3 class="sep">Conectados</h3>
+          <ul id="online-list" class="list"></ul>
+        </aside>
+        <div id="invite-box" class="invitacion" role="alertdialog" hidden>
+          <p id="invite-text"></p>
+          <div class="row"><button id="invite-accept" type="button" class="primary">Aceptar</button><button id="invite-ignore" type="button">Ignorar</button></div>
+        </div>
+      </section>
+
+      <section class="preparacion tab" data-tab="preparacion" hidden>
+        <div class="vitrina">
+          <canvas id="prep-canvas" aria-label="Vista previa de tu personaje"></canvas>
+          <div class="giro">
+            <button type="button" class="mini" data-view="front">Frente</button>
+            <button type="button" class="mini" data-view="side">Lado</button>
+            <button type="button" class="mini" data-view="back">Espalda</button>
+            <button type="button" class="mini" data-view="">Girar</button>
+          </div>
+        </div>
+        <div class="hoja ajustes">
+          <h3>Escuela</h3>
+          <div id="school-list" class="escuelas"></div>
+          <h3 class="sep">Focos</h3>
+          <div id="foco-list" class="focos"></div>
+          <h3 class="sep">Aspecto</h3>
+          <div class="aspecto">
+            <div class="selector" data-part="body"><span>Cuerpo</span><button type="button" class="mini" data-dir="-1" aria-label="Anterior">‹</button><b></b><button type="button" class="mini" data-dir="1" aria-label="Siguiente">›</button></div>
+            <div class="selector" data-part="outfit"><span>Ropa</span><button type="button" class="mini" data-dir="-1" aria-label="Anterior">‹</button><b></b><button type="button" class="mini" data-dir="1" aria-label="Siguiente">›</button></div>
+            <div class="selector" data-part="head"><span>Cabeza</span><button type="button" class="mini" data-dir="-1" aria-label="Anterior">‹</button><b></b><button type="button" class="mini" data-dir="1" aria-label="Siguiente">›</button></div>
+          </div>
+          <p class="nota">Se guarda solo. Tu escuadra ve tu aspecto en el campamento y todos lo ven en la partida.</p>
+        </div>
+      </section>
+
+      <section class="libro tab" data-tab="privadas" hidden>
         <span class="cinta c1" aria-hidden="true"></span><span class="cinta c2" aria-hidden="true"></span>
         <span class="hojas tl" aria-hidden="true"></span><span class="hojas br" aria-hidden="true"></span>
         <div class="lobby-grid">

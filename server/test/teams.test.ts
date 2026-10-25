@@ -83,7 +83,8 @@ describe('Equipos en la partida', () => {
     match.start(); match.stop();
     const start = sent.p0.find((m) => m.type === 'start');
     expect(start.team).toBe(3);
-    expect(start.roster).toEqual([{ id: 'p0', name: 'jugador0', team: 3 }, { id: 'p1', name: 'jugador1', team: 1 }]);
+    expect(start.roster.map((r: any) => ({ id: r.id, name: r.name, team: r.team }))).toEqual([{ id: 'p0', name: 'jugador0', team: 3 }, { id: 'p1', name: 'jugador1', team: 1 }]);
+    expect(start.roster[0].app.body).toBeTruthy();
     (match as any).finished = false; (match as any).finish(Date.now());
     expect(record.players.map((p: any) => p.team)).toEqual([3, 1]);
   });

@@ -2,13 +2,15 @@ import { expect, type Page } from '@playwright/test';
 
 export const uniqueName = (p: string) => `${p}${Date.now().toString(36).slice(-5)}${Math.floor(Math.random() * 90 + 10)}`;
 
-export async function register(page: Page, name: string, password = 'secreta123') {
+/** Registra y entra al lobby. Por defecto abre "Partidas privadas" (salas manuales). */
+export async function register(page: Page, name: string, password = 'secreta123', tab: 'privadas' | 'campamento' = 'privadas') {
   await page.goto('/');
   await page.fill('#username', name);
   await page.fill('#password', password);
   await page.click('#register-btn');
   await expect(page.locator('#screen-lobby')).toBeVisible();
   await expect(page.locator('#socket-status')).toHaveAttribute('data-state', 'connected');
+  await page.click(`.tabs [data-tab="${tab}"]`);
 }
 
 export async function startSoloMatch(page: Page, room: string) {

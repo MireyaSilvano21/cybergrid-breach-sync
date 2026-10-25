@@ -15,3 +15,4 @@ export * from './templates';
 export * from './abilities';
 export * from './rig';
 export * from './teams';
+export * from './lobby';

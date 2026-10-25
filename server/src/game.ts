@@ -5,7 +5,7 @@ import {
   FOCOS, DEFAULT_BUILD, abilityFor, inBasicRange, clampAim, fanDirections, GCD_MS, SWAP_MS, DASH_S, DASH_MUL, SLOW_MUL, SLOW_MS, KNOCK_PX, PROJECTILE, TILE,
   type Build, type Slot, type AbilityDef,
   type GridMap, type InputMessage, type MatchRecord, type PhaseConfig,
-  type ChestKind, teamSpawns,
+  type ChestKind, teamSpawns, buildFromProfile, appearanceOf, type Profile, type Appearance,
 } from '@shared/index';
 import { config } from './config';
 
@@ -15,6 +15,8 @@ interface Actor {
   conn: Conn;
   /** Equipo (0 a 3): no hay daño entre compañeros y se ven siempre. */
   team: number;
+  /** Aspecto elegido en Preparación (cuerpo, ropa y cabeza). */
+  app: Appearance;
   x: number; y: number; ax: number; ay: number;
   hp: number; shield: number;
   alive: boolean; extracted: boolean;
@@ -67,14 +69,14 @@ export class Match {
   private timer: NodeJS.Timeout | null = null;
   private finished = false;
 
-  constructor(entries: (Conn | { conn: Conn; team: number })[], private onEnd: (record: MatchRecord) => void) {
+  constructor(entries: (Conn | { conn: Conn; team: number; profile?: Profile })[], private onEnd: (record: MatchRecord) => void) {
     // Sin equipo indicado, cada jugador va solo (todos contra todos), como en las pruebas.
-    const list = entries.map((e, i) => ('conn' in e ? e : { conn: e, team: i % 4 }));
+    const list = entries.map((e, i) => ('conn' in e ? e : { conn: e, team: i % 4, profile: undefined as Profile | undefined }));
     this.map = generateValidMap(this.seed, list.length);
     this.chests = placeChests(this.map).map((c) => ({ ...c, state: 'closed' as const }));
     const spawnOf = teamSpawns(list.map((e) => e.team), this.map.spawns.length);
     const placed = new Map<number, number>();
-    list.forEach(({ conn, team }, i) => {
+    list.forEach(({ conn, team, profile }, i) => {
       // Cada equipo sale de su propia llegada; los compañeros, alrededor.
       const k = placed.get(team) ?? 0; placed.set(team, k + 1);
       const sp = this.map.spawns[config.sameSpawn ? 0 : spawnOf.get(team)!];
@@ -84,19 +86,19 @@ export class Match {
       const offs = ring === 0 ? [[0, 0]] : [[48, 0], [-48, 0], [0, 48], [0, -48], [48, 48], [-48, -48], [48, -48], [-48, 48]].map(([dx, dy]) => [dx * ring, dy * ring]);
       const [ox, oy] = offs.find(([dx, dy]) => free(sp.x + dx, sp.y + dy)) ?? [0, 0];
       this.actors.set(conn.id, {
-        conn, team, x: sp.x + ox, y: sp.y + oy, ax: 0, ay: 1,
+        conn, team, app: appearanceOf(profile, conn.id), x: sp.x + ox, y: sp.y + oy, ax: 0, ay: 1,
         hp: PLAYER.maxHp, shield: 0, alive: true, extracted: false,
         input: null, lastSeq: 0, moves: createMoveQueue(), cooldownUntil: 0, attackAt: 0, syncT: 0,
         kills: 0, deaths: 0, endedAt: null,
         inventory: [], pendingAttack: null, pendingUse: false, history: [],
-        build: DEFAULT_BUILD, foco: 0, target: null, nextBasic: 0, cds: {}, gcdUntil: 0, swapReady: 0,
+        build: buildFromProfile(profile), foco: 0, target: null, nextBasic: 0, cds: {}, gcdUntil: 0, swapReady: 0,
         slowUntil: 0, knock: null, dash: null, pendingCast: null, pendingSwap: false,
       });
     });
   }
 
   start() {
-    const roster = [...this.actors.values()].map((b) => ({ id: b.conn.id, name: b.conn.name, team: b.team }));
+    const roster = [...this.actors.values()].map((b) => ({ id: b.conn.id, name: b.conn.name, team: b.team, app: b.app }));
     for (const a of this.actors.values()) {
       a.conn.send({ type: 'start', seed: this.seed, players: this.actors.size, you: a.conn.id, team: a.team, roster, phases: this.phases, x: a.x, y: a.y });
     }

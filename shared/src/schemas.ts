@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { ProfileSchema } from './lobby';
 
 /** Credenciales de acceso. */
 export const CredentialsSchema = z.object({
@@ -19,6 +20,12 @@ export const ClientMessageSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('ready'), ready: z.boolean() }),
   /** Cambiarse de equipo en el lobby (0 a 3). */
   z.object({ type: z.literal('team'), team: z.number().int().min(0).max(3) }),
+  // --- Campamento: escuadra, preparación y emparejamiento ---
+  z.object({ type: z.literal('profile'), profile: ProfileSchema }),
+  z.object({ type: z.literal('party_join'), code: z.string().trim().toUpperCase().regex(/^[A-Z0-9]{5}$/, 'Código de escuadra inválido') }),
+  z.object({ type: z.literal('party_leave') }),
+  z.object({ type: z.literal('invite'), to: z.string().min(1).max(40) }),
+  z.object({ type: z.literal('queue'), on: z.boolean() }),
   z.object({
     type: z.literal('input'),
     seq: z.number().int().nonnegative(),

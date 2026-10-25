@@ -9,14 +9,19 @@ import { ClientMessageSchema, CredentialsSchema, CreateRoomSchema, SeedPayloadSc
 import { config } from './config';
 import { checkCredentials, issueToken, registerUser, requireAuth, verifyToken, type AuthedRequest } from './auth';
 import { RoomManager } from './rooms';
+import { Hub } from './hub';
 import { generateMatches, telemetry } from './telemetry';
 import type { Conn } from './game';
 
-export function createGameServer(): { app: express.Express; server: Server; rooms: RoomManager } {
+export function createGameServer(): { app: express.Express; server: Server; rooms: RoomManager; hub: Hub } {
   const app = express();
   app.disable('x-powered-by');
   app.use(express.json({ limit: '2mb' }));
-  const rooms = new RoomManager((record) => telemetry.add(record));
+  // El campamento (escuadras y cola) y las salas se conocen: la cola arranca partidas en salas ocultas.
+  let hub: Hub;
+  const rooms = new RoomManager((record) => telemetry.add(record), (id) => hub.profileOf(id));
+  hub = new Hub({ rules: config.queue, busy: (id) => rooms.busy(id), start: (entries, onEnd) => rooms.startQueued(entries, onEnd) });
+  if (!process.env.VITEST) hub.startTicking();
 
   app.get('/api/health', (_req, res) => res.json({ ok: true, uptimeS: Math.round(process.uptime()) }));
 
@@ -101,6 +106,7 @@ export function createGameServer(): { app: express.Express; server: Server; room
       send: (msg) => { if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(msg)); },
     };
     conn.send({ type: 'hello', id: conn.id, name: conn.name });
+    hub.connect(conn);
     ws.on('message', (raw) => {
       let data: unknown;
       try { data = JSON.parse(raw.toString()); } catch { return; }
@@ -109,17 +115,22 @@ export function createGameServer(): { app: express.Express; server: Server; room
       const m = p.data;
       switch (m.type) {
         case 'ping': return conn.send({ type: 'pong', t: m.t });
-        case 'join': { const err = rooms.join(conn, m.roomId, m.password); if (err) conn.send({ type: 'error', message: err }); return; }
+        case 'join': { hub.cancelFor(conn.id); const err = rooms.join(conn, m.roomId, m.password); if (err) conn.send({ type: 'error', message: err }); return; }
         case 'leave': return rooms.leave(conn.id);
         case 'ready': return rooms.setReady(conn.id, m.ready);
         case 'team': { const err = rooms.setTeam(conn.id, m.team); if (err) conn.send({ type: 'error', message: err }); return; }
         case 'input': return rooms.input(conn.id, m);
+        case 'profile': return hub.setProfile(conn.id, m.profile);
+        case 'party_join': { const err = hub.join(conn.id, m.code); if (err) conn.send({ type: 'error', message: err }); return; }
+        case 'party_leave': return hub.leave(conn.id);
+        case 'invite': { const err = hub.invite(conn.id, m.to); if (err) conn.send({ type: 'error', message: err }); return; }
+        case 'queue': { const err = hub.setQueue(conn.id, m.on); if (err) conn.send({ type: 'error', message: err }); return; }
       }
     });
-    ws.on('close', () => rooms.leave(conn.id));
+    ws.on('close', () => { rooms.leave(conn.id); hub.disconnect(conn.id); });
   });
 
-  return { app, server, rooms };
+  return { app, server, rooms, hub };
 }
 
 if (!process.env.VITEST) {

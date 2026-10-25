@@ -28,4 +28,6 @@ test('Flujo de combate: fijar con Tab, básico automático y Temblor (E) con rec
   await host.keyboard.press('e');
   await expect.poll(() => hp(guest), { timeout: 3000 }).toBeLessThan(before);
   await expect(host.locator('#abilities .ab[data-slot="E"]')).toHaveAttribute('data-ready', 'false');
+  // Cerrar las páginas: así sus partidas no siguen corriendo durante las demás pruebas.
+  await Promise.all([host.close(), guest.close()]);
 });

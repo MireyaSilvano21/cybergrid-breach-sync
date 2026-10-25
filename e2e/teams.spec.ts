@@ -31,4 +31,6 @@ test('Flujo de equipos: elegir equipo en la sala y no dañar al compañero', asy
   await host.keyboard.press('e');
   await host.waitForTimeout(1500);
   expect(await hp(guest)).toBe(100);
+  // Cerrar las páginas: así sus partidas no siguen corriendo durante las demás pruebas.
+  await Promise.all([host.close(), guest.close()]);
 });
