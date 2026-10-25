@@ -16,3 +16,5 @@ export * from './abilities';
 export * from './rig';
 export * from './teams';
 export * from './lobby';
+export * from './desnombrados';
+export * from './ritual';

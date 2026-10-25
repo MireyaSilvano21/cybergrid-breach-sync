@@ -3,15 +3,20 @@ import {
   FOCOS, NOMBRES, DEFAULT_BUILD, abilityFor, clampAim, fanDirections, blinkTarget, dashMulFor, reloadAmmo, solidAt, AMMO_MAX, GCD_MS, SWAP_MS, DASH_S, DASH_MUL,
   type Build, type Slot, type Shape, type ProjectileDef,
   animate, appearanceFor, BODIES, type Appearance, type AnimInput, type ActionKind, type View,
-  TEAMS, RESONANCE,
+  TEAMS, RESONANCE, MONSTERS, RITUAL, STRIKE_DELAY_MS, needleAt, openVault,
   type GridMap, type TimedPosition,
 } from '@shared/index';
 import type { Net } from './net';
 import { Input, type AimSlot, type Drag } from './input';
 import { Sprites, isDeepWall, drawDiagWall, drawThinCracks, drawCover, drawBars, drawBrazier, buildFloorChunk, buildWall, wallKey, buildDecor, drawGrass, glowP, CHUNK, WALL_RISE, INK, type FloorChunk, type Decor } from './art';
 import { drawCharacter } from './rig';
+import { drawErrante, drawSusurrante, drawColoso, drawRuneTelegraph, drawZoneTelegraph, shadow as monShadow, PveFx, MONSTER_SCALE, SUSURRANTE_MOUTH, type ErrantePose, type SusurrantePose, type ColosoPose } from './desnombrados';
 
 interface Remote { id: string; name: string; buf: TimedPosition[]; hp: number; ax: number; ay: number; atk: boolean; seen: number; lx: number; ly: number; walk: number; flash: number; foco?: string; slow?: boolean; root?: boolean; invis?: boolean; rev?: boolean; mark?: boolean; team?: number; swingAt: number; shotAt: number; castAt: number; mv: number; drawT: number }
+/** Desnombrado visto: posiciones para interpolar, estado del servidor y cuándo golpeó (para animar). */
+interface Mon { id: number; k: 'errante' | 'susurrante' | 'coloso'; buf: TimedPosition[]; hp: number; st: string; p: number; ax: number; ay: number; dx: number; seen: number; strikeAt: number; face: number }
+/** Monolito en la instantánea: fase del ritual, equipo, integridad, progreso (%), oleada y descanso (s). */
+interface RitualView { x: number; y: number; ph: string; tm: number; i: number; p: number; w: number; cd: number }
 interface Fx { kind: string; x: number; y: number; dx?: number; dy?: number; r?: number; x2?: number; y2?: number; ang?: number; w?: number; rgb?: string; t0: number; dur: number }
 /** Disparo propio predicho: se dibuja desde que sale, sin esperar al servidor. */
 interface MyShot { n: number; kind: string; x0: number; y0: number; dx: number; dy: number; speed: number; radius: number; range: number; t0: number; seen: boolean; dead: boolean; pierce: boolean }
@@ -176,6 +181,15 @@ export class Game {
   private inv: string[] = [];
   private toastTimer: number | undefined;
   private collapseR: number | null = null;
+  /** PvE: Desnombrados, efectos de sus ataques, rituales, bóvedas abiertas y prueba de Nombre en curso. */
+  private mons = new Map<number, Mon>();
+  private pve = new PveFx();
+  private pveT = performance.now();
+  private rituals: RitualView[] = [];
+  private openedVaults = new Set<number>();
+  private phaseId = '';
+  private nameTest: { el: number; z: number; at: number } | null = null;
+  private pendingName: number | null = null;
   private seq = 0;
   private lastSend = 0;
   private raf = 0;
@@ -202,13 +216,14 @@ export class Game {
     this.me.x = this.pred.x = this.cam.x = start.x;
     this.me.y = this.pred.y = this.cam.y = start.y;
     const q = (id: string) => root.querySelector<HTMLElement>('#' + id)!;
-    this.el = { hpBar: q('hp-bar'), hpText: q('hp-text'), phase: q('phase'), timer: q('timer'), ping: q('ping'), fps: q('fps'), sync: q('sync'), syncBar: q('sync-bar'), state: q('player-state'), toast: q('toast'), inv: q('inventory'), invSlots: q('inv-slots'), invValue: q('inv-value'), reso: q('resonance'), resoBar: q('reso-bar'), resoTxt: q('reso-txt') };
+    this.el = { hpBar: q('hp-bar'), hpText: q('hp-text'), phase: q('phase'), timer: q('timer'), ping: q('ping'), fps: q('fps'), sync: q('sync'), syncBar: q('sync-bar'), state: q('player-state'), toast: q('toast'), inv: q('inventory'), invSlots: q('inv-slots'), invValue: q('inv-value'), reso: q('resonance'), resoBar: q('reso-bar'), resoTxt: q('reso-txt'), ritual: q('ritual'), syncTxt: root.querySelector<HTMLElement>('.sync-txt')! };
     Game.loadSprites();
     this.renderInventory([]);
     const names = (ids: string[]) => ids.map((id) => ITEMS[id]?.name ?? id).join(', ');
     this.offs.push(net.on('opened', (m) => this.toast(m.items.length ? `Contiene: ${names(m.items)}` : 'Está vacío')));
     this.offs.push(net.on('looted', (m) => this.toast(`Obtuviste: ${names(m.items)}${m.left ? ' · no cupo todo' : ''}`)));
     this.offs.push(net.on('notice', (m) => this.toast(m.message)));
+    this.offs.push(net.on('name', (m) => this.toast(m.result === 'perfecto' ? '¡Nombre perfecto! El monolito se fortalece' : m.result === 'correcto' ? 'Nombre correcto: el ritual sigue' : 'Nombre errado: el monolito te delata')));
     this.offs.push(net.on('extracted', (m) => this.toast(`Escapaste con ${m.value} ◆`)));
     // Curaciones: número verde sobre quien se cura.
     this.offs.push(net.on('heal', (m) => { this.floaters.push({ x: m.x, y: m.y, text: `+${m.amt}`, t0: performance.now(), heal: true }); }));
@@ -226,6 +241,7 @@ export class Game {
     this.abEls = [...root.querySelectorAll<HTMLElement>('[data-slot]')];
     // Efectos de habilidades de otros jugadores (las propias ya se dibujaron al lanzarlas).
     this.offs.push(net.on('fx', (m) => {
+      if (this.onPveFx(m)) return;
       if (m.by === this.myId) return;
       this.addFx(m.kind, m.x, m.y, { dx: m.dx, dy: m.dy, r: m.r, ang: m.ang, w: m.w, rgb: m.rgb, x2: m.x2, y2: m.y2 });
       const r = m.by ? this.remotes.get(m.by) : undefined;
@@ -314,6 +330,7 @@ export class Game {
     };
     if (this.pendingFire) msg.fire = this.pendingFire;
     if (this.pendingCast) msg.cast = this.pendingCast;
+    if (this.pendingName !== null) { msg.name = this.pendingName; msg.use = false; this.pendingName = null; this.nameTest = null; }
     this.pendingFire = null; this.pendingCast = null; this.pendingSwap = false;
     this.net.send(msg);
   }
@@ -356,10 +373,14 @@ export class Game {
     if (this.me.alive && !m.you.alive) this.deadAt = now;
     Object.assign(this.me, { hp: m.you.hp, alive: m.you.alive, extracted: m.you.extracted });
     this.portals = m.portals; this.collapseR = m.collapseR; this.res = m.res ?? null;
-    // Mismos sellos que el servidor, según la fase (la física predicha debe coincidir).
-    const later = ['primera-llamada', 'segunda-llamada', 'cierre-portal-1', 'desnombrar', 'fin'];
-    this.map.sealsOpen.vault = later.includes(m.phase);
-    this.map.sealsOpen.heart = later.indexOf(m.phase) >= 1;
+    // Mismos sellos que el servidor (la física predicha debe coincidir): cada bóveda mayor la abre
+    // su ritual; la Bóveda Antigua, la caída del Coloso.
+    for (const v of m.vaults ?? []) if (!this.openedVaults.has(v)) { openVault(this.map, v); this.openedVaults.add(v); }
+    this.map.sealsOpen.heart = m.heart === 'abierta';
+    this.rituals = m.rit ?? [];
+    this.phaseId = m.phase;
+    this.syncMonsters(m.mons ?? [], now);
+    this.nameTest = m.you.nt ? { el: m.you.nt.el, z: m.you.nt.z, at: now } : null;
     this.chests = m.chests ?? []; this.remains = m.remains ?? [];
     const inv: string[] = m.you.inv ?? [];
     if (inv.join() !== this.inv.join()) this.renderInventory(inv);
@@ -379,10 +400,58 @@ export class Game {
     setText(this.el.hpText, String(Math.ceil(m.you.hp)));
     setText(this.el.phase, PHASE_LABEL[m.phase] ?? m.phase);
     const s = m.timeLeft; setText(this.el.timer, `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`);
-    const syncing = m.you.sync > 0;
+    // La misma barra sirve para sincronizar con el portal y para despertar un monolito.
+    const rt: number = m.you.rt ?? 0, syncing = m.you.sync > 0 || rt > 0;
     if (this.el.sync.hidden === syncing) this.el.sync.hidden = !syncing;
-    if (syncing) setStyle(this.el.syncBar, 'width', `${Math.round(Math.min(100, (m.you.sync / m.you.syncNeed) * 100))}%`);
+    if (syncing) {
+      setStyle(this.el.syncBar, 'width', `${Math.round(Math.min(100, rt > 0 ? rt * 100 : (m.you.sync / m.you.syncNeed) * 100))}%`);
+      setText(this.el.syncTxt, rt > 0 ? 'Despertando el monolito…' : 'Sincronizando con el portal…');
+    }
     this.updateResonanceHud();
+    this.updateRitualHud();
+  }
+
+  /** Línea del ritual de tu equipo bajo la fase: oleada, integridad y progreso. */
+  private updateRitualHud() {
+    const r = this.rituals.find((x) => x.tm === this.myTeam && (x.ph === 'defensa' || x.ph === 'reparar'));
+    const box = this.el.ritual;
+    if (box.hidden !== !r) box.hidden = !r;
+    if (!r) return;
+    setData(box, 'phase', r.ph);
+    setText(box, r.ph === 'reparar' ? 'Ritual detenido · haz la prueba de Nombre' : `Ritual · oleada ${r.w}/2 · integridad ${r.i}% · ${r.p}%`);
+  }
+
+  /** Actualiza los Desnombrados visibles (con búfer para interpolar como a los jugadores). */
+  private syncMonsters(list: { id: number; k: Mon['k']; x: number; y: number; hp: number; st: string; p: number; ax: number; ay: number; dx: number }[], now: number) {
+    for (const o of list) {
+      let r = this.mons.get(o.id);
+      if (!r) { r = { id: o.id, k: o.k, buf: [], hp: o.hp, st: o.st, p: o.p, ax: o.ax, ay: o.ay, dx: o.dx, seen: now, strikeAt: -1e9, face: 1 }; this.mons.set(o.id, r); }
+      r.buf.push({ x: o.x, y: o.y, t: now }); if (r.buf.length > 20) r.buf.shift();
+      Object.assign(r, { hp: o.hp, st: o.st, p: o.p, ax: o.ax, ay: o.ay, dx: o.dx, seen: now });
+      if (Math.abs(o.dx) > 0.2) r.face = o.dx < 0 ? -1 : 1;
+    }
+    for (const [id, r] of this.mons) if (now - r.seen > 500) this.mons.delete(id);
+  }
+
+  /** Efectos de PvE que manda el servidor. Devuelve true si el mensaje era de PvE. */
+  private onPveFx(m: any): boolean {
+    const near = Math.hypot((m.x2 ?? m.x) - this.me.x, (m.y2 ?? m.y) - this.me.y) < 900;
+    switch (m.kind) {
+      case 'golpe': {
+        const r = this.mons.get(m.id); if (r) r.strikeAt = performance.now();
+        if (m.mk === 'errante') this.pve.slash(m.x2, m.y2 - 30, m.x2 - m.x);
+        else if (m.mk === 'susurrante') this.pve.lament(m.x, m.y + (SUSURRANTE_MOUTH + 8) * MONSTER_SCALE.susurrante, m.x2, m.y2, STRIKE_DELAY_MS.susurrante);
+        else this.pve.impact(m.x2, m.y2, MONSTERS.coloso.area);
+        if (!near) this.pve.shake = 0;
+        return true;
+      }
+      case 'disuelve': this.pve.dissolve(m.x, m.y, m.mk === 'coloso'); return true;
+      case 'monolito-pulso': this.pve.pulse(m.x, m.y, '190,120,255', 320); return true;
+      case 'monolito-completo': this.pve.pulse(m.x, m.y, '255,210,120', 260); return true;
+      case 'monolito-roto': this.pve.pulse(m.x, m.y, '255,80,90', 220); return true;
+      case 'pulso': this.pve.pulse(m.x, m.y, '140,255,230', 180); return true;
+    }
+    return false;
   }
 
   /** Barra de Resonancia bajo la fase: solo mientras está activa; roja y con aviso si el equipo está marcado. */
@@ -475,12 +544,14 @@ export class Game {
     // Sube rápido si la red empeora y baja despacio: así los demás no cambian de ritmo a cada rato.
     this.interpDelay += (this.targetDelay - this.interpDelay) * Math.min(1, dt * (this.targetDelay > this.interpDelay ? 2 : 0.4));
     const use = this.input.consumeUse();
+    // En la prueba de Nombre, "usar" detiene la aguja: se manda el ángulo que se ve en pantalla.
+    if (use && this.nameTest) this.pendingName = needleAt(this.nameTest.el + (performance.now() - this.nameTest.at));
     // Cada tramo con la misma dirección y velocidad se junta en un comando; al cambiar, se envía el anterior.
     if (this.out && (this.out.mx !== mx || this.out.my !== my || this.out.sp !== sp)) this.sendInput(t, false);
     if (!this.out) this.out = { mx, my, dt: 0, sp };
     if (active) this.out.dt += mdt;
     const idle = mx === 0 && my === 0;
-    const urgent = use || this.pendingCast || this.pendingFire || this.pendingSwap;
+    const urgent = use || this.pendingCast || this.pendingFire || this.pendingSwap || this.pendingName !== null;
     if (urgent || t - this.lastSend >= (idle ? 50 : 15) || this.out.dt >= 0.1) this.sendInput(t, use);
     this.updateAbilityHud();
     this.cam.x += (this.me.x - this.cam.x) * Math.min(1, dt * 6);
@@ -539,6 +610,7 @@ export class Game {
     }
     for (let i = this.embers.length - 1; i >= 0; i--) { const p = this.embers[i]; p.x += p.vx * dt; p.y += p.vy * dt; p.l -= dt * 0.7; if (p.l <= 0) this.embers.splice(i, 1); }
     for (let i = this.sparks.length - 1; i >= 0; i--) { const p = this.sparks[i]; p.x += p.vx * dt; p.y += p.vy * dt; p.vx *= 0.9; p.vy *= 0.9; p.l -= dt * 2.4; if (p.l <= 0) this.sparks.splice(i, 1); }
+    this.shake = Math.max(this.shake, this.pve.shake); this.pve.shake = 0;
     this.shake *= Math.pow(0.002, dt);
   }
 
@@ -599,7 +671,14 @@ export class Game {
       else if (d.kind === 'grass') list.push({ y: d.y, draw: () => drawGrass(g, d, sec, pushers) });
       else list.push({ y: d.y + 0.5, draw: () => this.drawSconce(d, sec) });
     }
-    for (const mo of map.monoliths) if (mo.x > v.x0 - 100 && mo.x < v.x1 + 100 && mo.y > v.y0 && mo.y < v.y1 + 200) list.push({ y: mo.y + 40, draw: () => { this.blob(mo.x, mo.y + 40, 48); this.drawScene('monolito_dormido', mo.x, mo.y + 40, MONO_SIZE); } });
+    map.monoliths.forEach((mo, i) => { if (mo.x > v.x0 - 100 && mo.x < v.x1 + 100 && mo.y > v.y0 && mo.y < v.y1 + 200) list.push({ y: mo.y + 40, draw: () => { this.blob(mo.x, mo.y + 40, 48); this.drawScene(this.monolithKey(i), mo.x, mo.y + 40, MONO_SIZE); } }); });
+    const monsNow: { m: Mon; x: number; y: number }[] = [];
+    for (const m of this.mons.values()) {
+      const p = sampleBuffer(m.buf, now - this.interpDelay); if (!p) continue;
+      if (p.x < v.x0 - 200 || p.x > v.x1 + 200 || p.y < v.y0 - 50 || p.y > v.y1 + 300) continue;
+      monsNow.push({ m, x: p.x, y: p.y });
+      list.push({ y: p.y, draw: () => this.drawMonster(m, p.x, p.y, now, sec) });
+    }
     for (const p of this.portals) if (p.x > v.x0 - 160 && p.x < v.x1 + 160 && p.y > v.y0 && p.y < v.y1 + 320) list.push({ y: p.y - 6, draw: () => this.drawScene(`portal_${this.portalState(p)}`, p.x, p.y - 6, PORTAL_SIZE) });
     for (const { r, x, y } of remotesNow) list.push({ y, draw: () => this.drawActor({ x, y, ax: r.ax, ay: r.ay, id: r.id, me: false, color: teamColor(r.team, TEAM_OTHER), invis: r.invis, walk: r.walk, move: r.mv, foco: r.foco, swingAt: r.swingAt, shotAt: r.shotAt, castAt: r.castAt, hitAt: r.flash }, now) });
     const me = this.me, dying = !me.alive && now - this.deadAt < DIE_MS + 600;
@@ -611,6 +690,8 @@ export class Game {
     list.sort((a, b) => a.y - b.y);
     g.lineCap = 'round'; g.lineJoin = 'round';
     this.drawGroundMarks(remotesNow, sec);
+    this.drawTelegraphs(monsNow, now, sec);
+    this.pve.drawGround(g);
     for (const o of list) o.draw();
 
     P?.push(performance.now());
@@ -622,7 +703,13 @@ export class Game {
       const st = this.portalState(p);
       lights.push({ x: p.x, y: p.y - 6 + PORTAL_RING.dy, r: st === 'apagado' ? 130 : 300, c: st === 'colapsando' ? '255,50,90' : st === 'abierto' ? '160,100,255' : '90,70,140', a: 0.22 });
     }
-    for (const mo of map.monoliths) lights.push({ x: mo.x, y: mo.y - 50, r: 140, c: '190,110,220', a: 0.15 });
+    map.monoliths.forEach((mo, i) => {
+      // La luz del monolito cuenta en qué va su ritual.
+      const ph = this.rituals[i]?.ph;
+      const L = ph === 'defensa' ? { r: 240, c: '190,110,255', a: 0.26 } : ph === 'reparar' ? { r: 220, c: '255,80,90', a: 0.2 + 0.1 * Math.sin(sec * 8) }
+        : ph === 'completo' ? { r: 200, c: '255,210,120', a: 0.2 } : ph === 'roto' ? { r: 120, c: '150,60,70', a: 0.1 } : { r: 140, c: '190,110,220', a: 0.15 };
+      lights.push({ x: mo.x, y: mo.y - 50, ...L });
+    });
     for (const pr of map.props) if (pr.kind === 'hito' || pr.kind === 'brasero') lights.push({ x: pr.x, y: pr.y - 20, r: pr.kind === 'hito' ? 260 : 170, c: '255,130,40', fl: pr.x * 0.01 });
     for (const c of this.chests) if (c.s !== 'empty') lights.push({ x: c.x, y: c.y - 30, r: c.s === 'open' ? 150 : 100, c: CHEST_ART[c.k ?? 'forja'].rgb, a: 0.14 });
     const vis = lights.filter((L) => L.x + L.r > v.x0 && L.x - L.r < v.x1 && L.y + L.r > v.y0 && L.y - L.r < v.y1);
@@ -664,6 +751,8 @@ export class Game {
     for (const p of this.sparks) { g.strokeStyle = `rgba(255,${(190 + p.l * 60) | 0},120,${p.l})`; g.lineWidth = 3 * p.l + 1; g.beginPath(); g.moveTo(p.x, p.y); g.lineTo(p.x - p.vx * 0.03, p.y - p.vy * 0.03); g.stroke(); }
     this.drawCombatFx(now, art);
     g.globalCompositeOperation = 'source-over';
+    const pdt = Math.min(0.05, (now - this.pveT) / 1000); this.pveT = now;
+    this.pve.draw(g, sec, pdt);
     this.drawAimIndicator();
 
     P?.push(performance.now());
@@ -684,6 +773,7 @@ export class Game {
       g.strokeStyle = 'rgba(255,90,90,.9)'; g.lineWidth = 3; g.beginPath(); g.ellipse(x, y, 30 * pulse, 12 * pulse, 0, 0, 6.283); g.stroke();
       g.fillStyle = '#ff5a5a'; g.beginPath(); g.moveTo(x, y - 92); g.lineTo(x - 9, y - 106); g.lineTo(x + 9, y - 106); g.closePath(); g.fill();
     }
+    this.drawRituals(sec);
     this.drawAmmo();
     this.drawFloaters();
     this.drawPrompt(t);
@@ -699,6 +789,7 @@ export class Game {
     g.globalCompositeOperation = 'source-over';
     g.drawImage(this.vignette, 0, 0, this.W, this.H);
     this.drawAllyArrows(remotesNow);
+    this.drawNameTest(now);
     const hk = 1 - (now - this.hurtAt) / 400;
     if (hk > 0) {
       const hg = g.createRadialGradient(this.W / 2, this.H / 2, Math.min(this.W, this.H) * 0.25, this.W / 2, this.H / 2, Math.max(this.W, this.H) * 0.7);
@@ -1143,6 +1234,109 @@ export class Game {
   }
 
   /** Indicación junto al cofre o los Restos más cercanos dentro del alcance. */
+  /** Imagen del monolito según su ritual. */
+  private monolithKey(i: number) {
+    const ph = this.rituals[i]?.ph;
+    return ph === 'defensa' || ph === 'reparar' ? 'monolito_ritual' : ph === 'completo' ? 'monolito_completado' : 'monolito_dormido';
+  }
+
+  /** Un Desnombrado con la pose que toca según su estado (preparar, golpear o esperar). */
+  private drawMonster(m: Mon, x: number, y: number, now: number, t: number) {
+    const g = this.ctx, S = MONSTER_SCALE[m.k], since = now - m.strikeAt, ph = m.id * 1.7;
+    monShadow(g, x, y, (m.k === 'coloso' ? 80 : m.k === 'errante' ? 48 : 30) * S);
+    const at = (px: number, py: number, alpha: number, fn: () => void) => { g.save(); g.globalAlpha = alpha; g.translate(px, py); g.scale(S * (m.k === 'coloso' ? 1 : m.face), S); fn(); g.restore(); };
+    if (m.k === 'errante') {
+      const st = Math.sin(t * 2.4 + ph);
+      const P: ErrantePose = { sx: 1 - st * 0.02, sy: 1 + st * 0.03, lean: 0, aL: -0.15 + Math.sin(t * 2 + ph) * 0.15, aR: -0.15 + Math.sin(t * 2 + 1 + ph) * 0.15, gl: 0.45 + 0.25 * Math.sin(t * 6 + ph) };
+      if (m.st === 'w') { const e = m.p * m.p; Object.assign(P, { sy: 1 - 0.17 * e, sx: 1 + 0.13 * e, lean: -0.2 * e, aL: -0.2 - 1.1 * e, aR: -0.2 - 1.3 * e, gl: 0.5 + 0.5 * m.p }); }
+      else if (since < 260) {
+        const u = since / 260;
+        Object.assign(P, { sx: 1 + 0.12 * (1 - u), sy: 1 - 0.12 * (1 - u), lean: 0.26 * (1 - u), aR: -1.6 + 2.8 * Math.min(1, u * 3), aL: -1.4 + 2.6 * Math.min(1, Math.max(0, u * 3 - 0.8)), gl: 1 });
+        // Estela del salto: copias tenues donde estaba hace un instante.
+        for (const [lag, a] of [[90, 0.22], [45, 0.32]]) { const q = sampleBuffer(m.buf, now - this.interpDelay - lag); if (q) at(q.x, q.y, a * (1 - u), () => drawErrante(g, t, P)); }
+      }
+      at(x, y, 1, () => drawErrante(g, t, P));
+    } else if (m.k === 'susurrante') {
+      const P: SusurrantePose = { rise: 0, flare: 1, charge: 0, mouth: 0, spin: t * 0.7 + ph };
+      if (m.st === 'w') Object.assign(P, { rise: 18 * m.p, flare: 1 + 0.55 * m.p, charge: m.p, spin: P.spin + m.p * m.p * 6 });
+      else if (since < 900) { const u = since / 900; Object.assign(P, { rise: 18 * Math.max(0, 1 - u * 1.5), flare: 1 + 0.55 * Math.max(0, 1 - u * 2.5), charge: Math.max(0, 1 - u * 3), mouth: Math.max(0, 1 - u * 1.6) }); }
+      at(x, y, 1, () => drawSusurrante(g, t, P));
+    } else {
+      const br = Math.sin(t * 1.4 + ph) * 2;
+      const P: ColosoPose = { br, aL: 0.24 + br * 0.02, aR: 0.24 + br * 0.02, gl: 0, chain: 0 };
+      if (m.st === 'w') { const e = m.p * m.p * (3 - 2 * m.p); Object.assign(P, { aL: 0.24 - 2.9 * e, aR: 0.24 - 2.9 * e, br: br + 8 * e, gl: e, chain: -e }); }
+      else if (since < 700) {
+        const u = since / 700;
+        if (u < 0.1) { const a = -2.66 + 3.3 * (u / 0.1); Object.assign(P, { aL: a, aR: a, gl: 1 }); }
+        else { const a = 0.64 - 0.4 * Math.max(0, (u - 0.4) / 0.6); Object.assign(P, { aL: a, aR: a, gl: Math.max(0, 1 - u * 1.5), chain: 1 - u }); }
+      }
+      at(x, y, 1, () => drawColoso(g, t, P));
+    }
+    // Vida: solo si ya recibió daño; el Coloso la muestra siempre, con su nombre.
+    const max = MONSTERS[m.k].hp, top = y - (m.k === 'coloso' ? 300 : m.k === 'susurrante' ? 290 : 250) * S;
+    if (m.hp < max || m.k === 'coloso') {
+      const w = m.k === 'coloso' ? 90 : 40;
+      g.fillStyle = 'rgba(20,10,22,.85)'; g.fillRect(x - w / 2 - 1, top - 1, w + 2, 7);
+      g.fillStyle = '#ff6b6b'; g.fillRect(x - w / 2, top, w * Math.max(0, m.hp / max), 5);
+      if (m.k === 'coloso') { const lab = labelSprite('Coloso', '#ff9ac8'); g.drawImage(lab, x - lab.width / 4, top - 22, lab.width / 2, lab.height / 2); }
+    }
+  }
+
+  /** Avisos en el piso mientras un Desnombrado prepara su golpe (para poder esquivarlo). */
+  private drawTelegraphs(list: { m: Mon }[], now: number, t: number) {
+    const g = this.ctx;
+    for (const { m } of list) {
+      const since = now - m.strikeAt;
+      if (m.k === 'susurrante' && (m.st === 'w' || since < STRIKE_DELAY_MS.susurrante)) drawRuneTelegraph(g, m.ax, m.ay, MONSTERS.susurrante.area, m.st === 'w' ? Math.min(1, m.p * 1.4) : 1, t);
+      else if (m.k === 'coloso' && m.st === 'w') drawZoneTelegraph(g, m.ax, m.ay, MONSTERS.coloso.area, m.p, t);
+      else if (m.k === 'errante' && m.st === 'w') {
+        g.save(); g.translate(m.ax, m.ay); g.scale(1, 0.32); g.strokeStyle = `rgba(200,140,255,${0.3 + 0.5 * m.p})`; g.lineWidth = 3;
+        g.beginPath(); g.arc(0, 0, MONSTERS.errante.area, 0, 7); g.stroke(); g.restore();
+      }
+    }
+  }
+
+  /** Sobre cada monolito activo: integridad, oleada y progreso; si se rompió, cuánto descansa. */
+  private drawRituals(t: number) {
+    const g = this.ctx;
+    this.rituals.forEach((r) => {
+      if (Math.hypot(r.x - this.cam.x, r.y - this.cam.y) > 900) return;
+      const y = r.y - 175;
+      if (r.ph === 'defensa' || r.ph === 'reparar') {
+        const mine = r.tm === this.myTeam, col = teamColor(r.tm, '#e2c8ff'), w = 96;
+        g.fillStyle = 'rgba(14,8,16,.85)'; g.beginPath(); g.roundRect(r.x - w / 2 - 6, y - 26, w + 12, 40, 6); g.fill();
+        g.fillStyle = '#3a1f2a'; g.fillRect(r.x - w / 2, y, w, 7);
+        g.fillStyle = r.ph === 'reparar' ? (Math.sin(t * 10) > 0 ? '#ff5a64' : '#a8323c') : '#8fd6a8'; g.fillRect(r.x - w / 2, y, (w * r.i) / 100, 7);
+        g.strokeStyle = col; g.lineWidth = 3; g.beginPath(); g.arc(r.x, y - 9, 9, -Math.PI / 2, -Math.PI / 2 + (Math.PI * 2 * r.p) / 100); g.stroke();
+        g.font = '500 12px "Alegreya Sans", sans-serif'; g.textAlign = 'left'; g.fillStyle = mine ? '#ffc08a' : '#e2c8ff';
+        g.fillText(r.ph === 'reparar' ? '¡Nombre!' : `${r.w}/2`, r.x + 4 - w / 2, y - 5);
+      } else if (r.ph === 'roto' && r.cd > 0) {
+        g.font = '500 13px "Alegreya Sans", sans-serif'; g.textAlign = 'center'; g.fillStyle = 'rgba(255,140,150,.9)';
+        g.fillText(`Descansa · ${r.cd} s`, r.x, y);
+      }
+    });
+  }
+
+  /** Prueba de Nombre: círculo de runas con la zona correcta, la perfecta y la aguja que gira. */
+  private drawNameTest(now: number) {
+    const nt = this.nameTest; if (!nt) return;
+    const g = this.ctx, cx = this.W / 2, cy = this.H * 0.36, R = Math.max(48, Math.min(70, this.W * 0.16));
+    const a = needleAt(nt.el + (now - nt.at));
+    g.save();
+    g.fillStyle = 'rgba(14,8,16,.78)'; g.beginPath(); g.arc(cx, cy, R + 20, 0, 7); g.fill();
+    g.strokeStyle = 'rgba(244,239,228,.7)'; g.lineWidth = 3; g.beginPath(); g.arc(cx, cy, R, 0, 7); g.stroke();
+    for (let i = 0; i < 16; i++) { const q = (i / 16) * 6.283; g.beginPath(); g.moveTo(cx + Math.cos(q) * (R + 6), cy + Math.sin(q) * (R + 6)); g.lineTo(cx + Math.cos(q) * (R + 13), cy + Math.sin(q) * (R + 13)); g.stroke(); }
+    g.lineCap = 'butt';
+    g.strokeStyle = '#8fd6a8'; g.lineWidth = 12; g.beginPath(); g.arc(cx, cy, R, nt.z - RITUAL.zone / 2, nt.z + RITUAL.zone / 2); g.stroke();
+    g.strokeStyle = '#ffd36a'; g.lineWidth = 14; g.beginPath(); g.arc(cx, cy, R, nt.z - RITUAL.perfect / 2, nt.z + RITUAL.perfect / 2); g.stroke();
+    g.lineCap = 'round'; g.strokeStyle = '#f4efe4'; g.lineWidth = 4;
+    g.beginPath(); g.moveTo(cx, cy); g.lineTo(cx + Math.cos(a) * (R + 10), cy + Math.sin(a) * (R + 10)); g.stroke();
+    g.fillStyle = '#f4efe4'; g.beginPath(); g.arc(cx, cy, 6, 0, 7); g.fill();
+    g.font = '500 15px "Alegreya Sans", sans-serif'; g.textAlign = 'center'; g.fillStyle = '#ffc08a';
+    g.fillText(`${this.input.touch ? 'Toca Usar' : 'Pulsa F'} cuando la aguja pase por la zona`, cx, cy + R + 42);
+    g.restore();
+  }
+
   private drawPrompt(t: number) {
     if (!this.me.alive || this.me.extracted) return;
     let best: { x: number; y: number; text: string; top: number } | null = null, bd = INTERACT_RANGE;
@@ -1154,6 +1348,15 @@ export class Game {
     for (const r of this.remains) {
       const d = Math.hypot(r.x - this.me.x, r.y - this.me.y);
       if (d <= bd) { bd = d; best = { x: r.x, y: r.y, top: 50, text: `saquear a ${r.owner}` }; }
+    }
+    // Monolitos: despertarlo (desde la Primera Llamada) o hacer la prueba de Nombre si se debilita.
+    if (!best) {
+      const awake = ['primera-llamada', 'segunda-llamada', 'cierre-portal-1', 'desnombrar'].includes(this.phaseId);
+      for (const r of this.rituals) {
+        if (Math.hypot(r.x - this.me.x, r.y - this.me.y) > RITUAL.range) continue;
+        if (r.ph === 'dormido' && awake) best = { x: r.x, y: r.y, top: 170, text: 'mantén para despertar el monolito' };
+        else if (r.ph === 'reparar' && r.tm === this.myTeam && !this.nameTest) best = { x: r.x, y: r.y, top: 170, text: 'prueba de Nombre' };
+      }
     }
     if (!best) return;
     const g = this.ctx, label = `${this.input.touch ? 'Usar' : 'F'} · ${best.text}`;
