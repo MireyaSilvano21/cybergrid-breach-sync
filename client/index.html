@@ -98,17 +98,29 @@
             <button type="button" class="mini" data-view="">Girar</button>
           </div>
         </div>
-        <div class="hoja ajustes">
+        <div class="hoja ajustes" data-sec="escuela">
+          <!-- En pantallas angostas se ve una sección a la vez para que todo quepa sin desplazarse. -->
+          <nav class="subtabs" role="tablist" aria-label="Preparación">
+            <button type="button" role="tab" data-sec="escuela" aria-selected="true">Escuela</button>
+            <button type="button" role="tab" data-sec="focos" aria-selected="false">Focos</button>
+            <button type="button" role="tab" data-sec="aspecto" aria-selected="false">Aspecto</button>
+          </nav>
+          <section class="sec" data-sec="escuela">
           <h3>Escuela</h3>
           <div id="school-list" class="escuelas"></div>
-          <h3 class="sep">Focos</h3>
+          </section>
+          <section class="sec" data-sec="focos">
+          <h3>Focos</h3>
           <div id="foco-list" class="focos"></div>
-          <h3 class="sep">Aspecto</h3>
+          </section>
+          <section class="sec" data-sec="aspecto">
+          <h3>Aspecto</h3>
           <div class="aspecto">
             <div class="selector" data-part="body"><span>Cuerpo</span><button type="button" class="mini" data-dir="-1" aria-label="Anterior">‹</button><b></b><button type="button" class="mini" data-dir="1" aria-label="Siguiente">›</button></div>
             <div class="selector" data-part="outfit"><span>Ropa</span><button type="button" class="mini" data-dir="-1" aria-label="Anterior">‹</button><b></b><button type="button" class="mini" data-dir="1" aria-label="Siguiente">›</button></div>
             <div class="selector" data-part="head"><span>Cabeza</span><button type="button" class="mini" data-dir="-1" aria-label="Anterior">‹</button><b></b><button type="button" class="mini" data-dir="1" aria-label="Siguiente">›</button></div>
           </div>
+          </section>
           <p class="nota">Se guarda solo. Tu escuadra ve tu aspecto en el campamento y todos lo ven en la partida.</p>
         </div>
       </section>

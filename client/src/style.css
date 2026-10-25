@@ -310,12 +310,9 @@ button:focus-visible,input:focus-visible{outline:3px solid var(--gold-l);outline
 .invitacion p{margin:0;font-weight:700;font-size:1.05rem}
 .invitacion .row{margin-top:10px;justify-content:flex-end}
 
-.preparacion{display:grid;grid-template-columns:minmax(260px,.9fr) 1.1fr;gap:16px;align-items:start}
-.vitrina{display:grid;gap:10px}
-.vitrina canvas{display:block;width:100%;aspect-ratio:4/5;border:4px solid var(--ink);border-radius:18px;box-shadow:inset 0 0 0 3px #8a5634,0 10px 0 #120a06}
-.giro{display:flex;gap:8px;justify-content:center;flex-wrap:wrap}
-.escuelas{display:grid;grid-template-columns:1fr 1fr;gap:8px}
-.panel-screen button.escuela{display:grid;gap:2px;text-align:left;background:rgba(255,250,235,.55);color:var(--paper-ink);text-shadow:none;border:2px solid var(--ink);border-left:7px solid #b49b72;box-shadow:0 3px 0 var(--ink);padding:8px 10px}
+.preparacion{display:grid}
+.escuelas{display:grid;gap:8px}
+.panel-screen button.escuela{display:grid;gap:2px;align-content:start;text-align:left;background:rgba(255,250,235,.55);color:var(--paper-ink);text-shadow:none;border:2px solid var(--ink);border-left:7px solid #b49b72;box-shadow:0 3px 0 var(--ink);padding:8px 10px}
 .panel-screen button.escuela b{font-family:var(--display);font-size:1.2rem;color:#6b3a1c}
 .escuela .titulo{font-size:.85rem;font-style:italic;color:var(--paper-muted);font-weight:500}
 .escuela .rol{font-size:.8rem;font-weight:700;color:var(--paper-ink)}
@@ -331,11 +328,105 @@ button:focus-visible,input:focus-visible{outline:3px solid var(--gold-l);outline
 .selector span{font-weight:700;color:var(--paper-muted)}
 .selector b{text-align:center;font-weight:700}
 .hoja .nota{margin:12px 0 0;font-size:.85rem;color:var(--paper-muted);font-style:italic}
+
+/* ---------- Preparación: todo cabe en la pantalla, sin barra de desplazamiento ----------
+   La pantalla del campamento ocupa justo el alto visible mientras Preparación está abierta;
+   la vitrina se estira a lo alto y las secciones se acomodan en una cuadrícula. */
+#screen-lobby:has(.preparacion:not([hidden])){padding:12px max(12px,env(safe-area-inset-left));place-items:start center;overflow:hidden}
+#screen-lobby:has(.preparacion:not([hidden])) .lobby{height:calc(100dvh - 24px);display:flex;flex-direction:column}
+.preparacion{display:grid;grid-template-columns:minmax(240px,36%) 1fr;gap:16px;align-items:stretch}
+.preparacion:not([hidden]){flex:1;min-height:0;margin-top:12px}
+.vitrina{position:relative;display:grid;grid-template-rows:minmax(0,1fr) auto;gap:8px;min-height:0}
+.vitrina canvas{display:block;width:100%;height:100%;min-height:0;border:4px solid var(--ink);border-radius:18px;box-shadow:inset 0 0 0 3px #8a5634,0 6px 0 #120a06}
+.giro{display:flex;gap:8px;justify-content:center;flex-wrap:wrap}
+.ajustes{align-self:start;max-height:100%;min-height:0;overflow:auto;scrollbar-width:thin;display:grid;grid-template-columns:1.15fr 1fr;grid-template-areas:'escuela escuela' 'focos aspecto' 'nota nota';
+  align-content:start;column-gap:20px;row-gap:12px;padding:14px 18px}
+.ajustes .sec[data-sec="escuela"]{grid-area:escuela}
+.ajustes .sec[data-sec="focos"]{grid-area:focos;padding-top:12px;border-top:2px dashed rgba(58,36,16,.35)}
+.ajustes .sec[data-sec="aspecto"]{grid-area:aspecto;padding-top:12px;border-top:2px dashed rgba(58,36,16,.35)}
+.ajustes .nota{grid-area:nota;margin:0}
+.panel-screen .ajustes h3{margin-bottom:8px}
+.escuelas{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}
+.aspecto .selector{grid-template-columns:62px auto 1fr auto}
+.subtabs{display:none}
+/* Pantallas medianas: Focos y Aspecto uno sobre otro, las escuelas en 2×2. */
+@media (min-width:901px) and (max-width:1180px){
+  .preparacion{grid-template-columns:minmax(220px,30%) 1fr}
+  .ajustes{grid-template-columns:1fr;grid-template-areas:'escuela' 'focos' 'aspecto' 'nota';row-gap:8px;padding:12px 16px}
+  .ajustes .sec[data-sec="focos"],.ajustes .sec[data-sec="aspecto"]{padding-top:8px}
+  .escuelas{grid-template-columns:1fr 1fr}
+  .escuela .titulo{display:none}
+  .foco span{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+  .aspecto{grid-template-columns:repeat(3,minmax(0,1fr))}
+  .aspecto .selector{grid-template-columns:auto 1fr auto;grid-template-areas:'t t t' 'a v b'}
+  .aspecto .selector{align-content:start}
+  .aspecto .selector span{grid-area:t}
+}
+/* Poca altura en escritorio: textos y tarjetas más compactos. */
+@media (min-width:901px) and (max-height:760px){
+  .panel-screen .ajustes h3{font-size:1.1rem;margin-bottom:6px}
+  .escuela .titulo{display:none}
+  .foco{padding:6px 8px;grid-template-columns:auto 32px 1fr auto}
+  .ico-foco{width:32px;height:32px}
+  .foco span{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+}
+
+/* Celular y pantallas angostas: personaje arriba, una sección a la vez abajo. */
 @media (max-width:900px){
-  .campamento,.preparacion{grid-template-columns:1fr}
+  #screen-lobby:has(.preparacion:not([hidden])){padding:8px max(8px,env(safe-area-inset-left))}
+  #screen-lobby:has(.preparacion:not([hidden])) .lobby{height:calc(100dvh - 16px)}
+  #screen-lobby:has(.preparacion:not([hidden])) .lobby-head{padding:8px 12px;gap:6px 10px;margin:0}
+  #screen-lobby:has(.preparacion:not([hidden])) .status{font-size:.8rem;gap:8px}
+  .preparacion:not([hidden]){margin-top:8px}
+  .preparacion{grid-template-columns:1fr;grid-template-rows:minmax(150px,1fr) auto;gap:8px}
+  #screen-lobby:has(.preparacion:not([hidden])) .lobby-head h2{display:none}
+  #screen-lobby:has(.preparacion:not([hidden])) .tabs{flex-wrap:nowrap;gap:4px;width:100%}
+  #screen-lobby:has(.preparacion:not([hidden])) .tabs button{flex:1 1 0;min-width:0;padding:4px 6px;font-size:.8rem;line-height:1.1}
+  .vitrina{grid-template-rows:minmax(0,1fr)}
+  .vitrina canvas{border-width:3px;border-radius:14px}
+  /* Los botones de giro van encima del personaje para no gastar alto. */
+  .giro{position:absolute;left:0;right:0;bottom:8px;gap:6px}
+  .giro .mini{font-size:.75rem;padding:2px 8px}
+  .ajustes{display:flex;flex-direction:column;gap:8px;padding:8px 10px}
+  .subtabs{display:flex;gap:6px}
+  .panel-screen .subtabs button{flex:1;background:rgba(58,36,16,.12);border:2px solid rgba(58,36,16,.55);border-radius:8px;color:var(--paper-ink);text-shadow:none;padding:6px 4px;font-size:.95rem}
+  .panel-screen .subtabs button[aria-selected="true"]{background:linear-gradient(#f6d46a,#d29a26);border-color:var(--ink);color:var(--ink)}
+  .panel-screen .subtabs button:active{transform:none}
+  .ajustes .sec{display:none;padding-top:0!important;border-top:none!important}
+  .ajustes[data-sec="escuela"] .sec[data-sec="escuela"],.ajustes[data-sec="focos"] .sec[data-sec="focos"],.ajustes[data-sec="aspecto"] .sec[data-sec="aspecto"]{display:block}
+  .ajustes .sec h3{display:none}
+  .escuelas{grid-template-columns:1fr 1fr;gap:6px}
+  .panel-screen button.escuela{padding:6px 8px}
+  .panel-screen button.escuela b{font-size:1.05rem}
+  .escuela .titulo{display:none}
+  .escuela .rol{font-size:.72rem}
+  .focos{gap:6px}
+  .foco{grid-template-columns:auto 30px 1fr auto;gap:8px;padding:6px 8px}
+  .ico-foco{width:30px;height:30px}
+  .foco b{font-size:.98rem}
+  .foco span{font-size:.78rem;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+  .aspecto .selector{grid-template-columns:4rem auto 1fr auto;gap:6px}
+  .selector span{font-size:.88rem}
+  .selector b{font-size:.9rem}
+  .ajustes .nota{font-size:.75rem;margin-top:auto}
+}
+/* Celular acostado: personaje a la izquierda y ajustes a la derecha. */
+@media (max-width:950px) and (max-height:520px) and (orientation:landscape){
+  #screen-lobby:has(.preparacion:not([hidden])){padding:6px max(8px,env(safe-area-inset-left))}
+  #screen-lobby:has(.preparacion:not([hidden])) .lobby{height:calc(100dvh - 12px)}
+  #screen-lobby:has(.preparacion:not([hidden])) .lobby-head{padding:4px 10px}
+  #screen-lobby:has(.preparacion:not([hidden])) .lobby-head h2{display:none}
+  .preparacion{grid-template-columns:minmax(150px,30%) 1fr;grid-template-rows:minmax(0,1fr)}
+  .preparacion{grid-template-rows:minmax(0,1fr)}
+  .ajustes .nota{display:none}
+  .escuela .rol{display:none}
+  .giro{display:grid;grid-template-columns:1fr 1fr;padding:0 8px;gap:4px}
+  .giro .mini{font-size:.7rem;padding:2px 4px}
+}
+@media (max-width:900px){
+  .campamento{grid-template-columns:1fr}
   .despliegue{grid-template-columns:1fr;grid-template-areas:'mapa' 'cola' 'boton';row-gap:6px;padding:12px}
   .escena canvas{aspect-ratio:4/3}
-  .vitrina canvas{aspect-ratio:1/1;max-height:60vh}
 }
 
 /* Íconos de tiza de las 4 escuelas y los 8 Focos (el arte final de Astra los reemplaza con el mismo nombre). */

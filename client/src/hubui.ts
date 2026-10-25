@@ -34,6 +34,12 @@ export class HubUI {
     this.camp = new CampScene($<HTMLCanvasElement>('camp-canvas'), () => this.myId);
     this.preview = new PreviewScene($<HTMLCanvasElement>('prep-canvas'));
     for (const b of document.querySelectorAll<HTMLButtonElement>('.tabs [data-tab]')) b.addEventListener('click', () => this.show(b.dataset.tab as Tab));
+    // Preparación en pantallas angostas: una sección a la vez (Escuela, Focos o Aspecto).
+    const ajustes = document.querySelector<HTMLElement>('.ajustes')!;
+    for (const b of document.querySelectorAll<HTMLButtonElement>('.subtabs [data-sec]')) b.addEventListener('click', () => {
+      ajustes.dataset.sec = b.dataset.sec!;
+      for (const o of document.querySelectorAll<HTMLButtonElement>('.subtabs [data-sec]')) o.setAttribute('aria-selected', String(o === b));
+    });
 
     net.on('hello', (m) => {
       this.myId = m.id;
