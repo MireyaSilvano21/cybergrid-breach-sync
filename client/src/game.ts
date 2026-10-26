@@ -11,11 +11,20 @@ import { Input, type AimSlot, type Drag } from './input';
 import { Sprites, isDeepWall, drawDiagWall, drawThinCracks, drawCover, drawBars, drawGate, drawBrazier, buildFloorChunk, buildWall, wallKey, buildDecor, drawGrass, glowP, CHUNK, WALL_RISE, INK, type FloorChunk, type Decor } from './art';
 import { drawCharacter } from './rig';
 import { CombatVfx } from './vfx';
+import { SpriteCaches } from './spritecache';
 import { sound } from './audio';
 import { itemIcon } from './items-art';
 import { drawErrante, drawSusurrante, drawColoso, drawRuneTelegraph, drawZoneTelegraph, shadow as monShadow, PveFx, MONSTER_SCALE, SUSURRANTE_MOUTH, type ErrantePose, type SusurrantePose, type ColosoPose } from './desnombrados';
 
 interface Remote { id: string; name: string; buf: TimedPosition[]; hp: number; ax: number; ay: number; atk: boolean; seen: number; lx: number; ly: number; walk: number; flash: number; foco?: string; slow?: boolean; root?: boolean; invis?: boolean; rev?: boolean; mark?: boolean; team?: number; labelDy?: number; swingAt: number; shotAt: number; castAt: number; mv: number; drawT: number }
+/** Elemento de la lista de dibujo: un muro o puerta (k y casilla) o una función de dibujo (f). */
+interface DrawItem { y: number; k: number; tx: number; ty: number; tile: number; o: number; f: (() => void) | null }
+/** Área que ocupa cada cosa respecto a sus pies (unidades del mundo), para su caché de dibujo. */
+const ACTOR_BOX = { l: -62, t: -124, w: 124, h: 136 };
+const MON_BOX = { errante: { l: -75, t: -130, w: 150, h: 142 }, susurrante: { l: -80, t: -160, w: 160, h: 172 }, coloso: { l: -130, t: -210, w: 260, h: 225 } } as const;
+/** ?sincache: dibuja todo en cada cuadro, para comparar. */
+const NO_CACHE = typeof location !== 'undefined' && /sincache/.test(location.search);
+
 /** Desnombrado visto: posiciones para interpolar, estado del servidor y cuándo golpeó (para animar). */
 interface Mon { id: number; k: 'errante' | 'susurrante' | 'coloso'; buf: TimedPosition[]; hp: number; st: string; p: number; ax: number; ay: number; dx: number; seen: number; strikeAt: number; face: number }
 /** Monolito en la instantánea: fase del ritual, equipo, integridad, progreso (%), oleada y descanso (s). */
@@ -202,6 +211,12 @@ export class Game {
   private gateOpen = new Map<number, number>();
   /** Posiciones de los demás en el cuadro anterior (para abrir puertas). */
   private nearPos: { x: number; y: number }[] = [];
+  /** Lista de dibujo y objetos reusables (sin basura por cuadro). */
+  private drawList: DrawItem[] = [];
+  private itemPool: DrawItem[] = [];
+  /** Cachés de dibujo de personajes remotos (30 por segundo) y Desnombrados (15 o 30). */
+  private actorCache = new SpriteCaches();
+  private monCache = new SpriteCaches();
   /** Mochila: acción pendiente para el servidor, botín cercano que se ve y objeto elegido en el panel. */
   private pendingInv: { a: 'take' | 'all' | 'drop' | 'use'; i: number; from?: string } | null = null;
   private loot: { id: string; items: string[] } | null = null;
@@ -649,6 +664,8 @@ export class Game {
   private adaptQuality(dt: number) {
     this.qAcc += dt; this.qN++;
     if (this.qAcc < 2) return;
+    // Libera las cachés de dibujo de quien dejó de verse.
+    const pn = performance.now(); this.actorCache.prune(pn); this.monCache.prune(pn);
     const fps = this.qN / this.qAcc, work = this.workAcc / this.qN;
     this.qAcc = 0; this.qN = 0; this.workAcc = 0;
     if (PERF) {
@@ -800,28 +817,37 @@ export class Game {
       for (let cx = Math.max(0, Math.floor(v.x0 / CHUNK_PX)); cx <= Math.floor(v.x1 / CHUNK_PX) && cx * CHUNK_PX < map.width * T; cx++) {
         const c = this.chunk(cx, cy);
         g.drawImage(c.canvas, cx * CHUNK_PX, cy * CHUNK_PX, CHUNK_PX, CHUNK_PX);
-        cracks.push(...c.cracks);
+        for (const cr of c.cracks) cracks.push(cr);
       }
 
     P?.push(performance.now());
     // 2. Todo lo que tiene altura, ordenado por su base (profundidad en tres cuartos).
-    const list: { y: number; draw: () => void }[] = [];
+    // Lista de dibujo sin crear objetos nuevos en cada cuadro: se reusan los del cuadro anterior
+    // (la basura por cuadro provoca pausas del recolector, tirones en celular).
+    const list = this.drawList; list.length = 0;
+    let pi = 0;
+    const item = (y: number) => {
+      let o = this.itemPool[pi];
+      if (!o) { o = { y: 0, k: 0, tx: 0, ty: 0, tile: 0, o: 0, f: null }; this.itemPool[pi] = o; }
+      pi++; o.y = y; o.k = 0; o.f = null; list.push(o); return o;
+    };
+    const tileItem = (y: number, k: number, tx: number, ty: number, tile: number, op = 0) => { const o = item(y); o.k = k; o.tx = tx; o.ty = ty; o.tile = tile; o.o = op; };
     const tx0 = Math.max(0, Math.floor(v.x0 / T)), tx1 = Math.min(map.width - 1, Math.floor(v.x1 / T));
     const ty0 = Math.max(0, Math.floor(v.y0 / T)), ty1 = Math.min(map.height - 1, Math.floor((v.y1 + WALL_RISE) / T));
     for (let ty = ty0; ty <= ty1; ty++) for (let tx = tx0; tx <= tx1; tx++) {
       const key = this.wallKeys[ty * map.width + tx], tile = map.tiles[ty * map.width + tx];
-      if (key >= 0) list.push({ y: ty * T + T, draw: () => { g.drawImage(this.wallImg(key), tx * T, ty * T - WALL_RISE, T, T + WALL_RISE); if (tile === THIN) drawThinCracks(g, tx, ty); } });
-      else if (isDiag(tile)) list.push({ y: ty * T + T, draw: () => drawDiagWall(g, tile, tx, ty, DIAGS) });
-      else if (tile === COVER) list.push({ y: ty * T + T - 8, draw: () => drawCover(g, tx, ty, (tx * 7 + ty * 13) & 7) });
-      else if (tile === SEAL_VAULT && !map.sealsOpen.vault || tile === SEAL_HEART && !map.sealsOpen.heart) list.push({ y: ty * T + T - 4, draw: () => drawBars(g, tx, ty, true) });
-      else if (isGate(tile)) { const o = this.gateOpenness(tx, ty, this.nearPos); list.push({ y: ty * T + T - 4, draw: () => drawGate(g, tx, ty, GATE_DIR[tile], o, sec) }); }
+      if (key >= 0) tileItem(ty * T + T, 1, tx, ty, tile, key);
+      else if (isDiag(tile)) tileItem(ty * T + T, 2, tx, ty, tile);
+      else if (tile === COVER) tileItem(ty * T + T - 8, 3, tx, ty, tile);
+      else if (tile === SEAL_VAULT && !map.sealsOpen.vault || tile === SEAL_HEART && !map.sealsOpen.heart) tileItem(ty * T + T - 4, 4, tx, ty, tile);
+      else if (isGate(tile)) tileItem(ty * T + T - 4, 5, tx, ty, tile, this.gateOpenness(tx, ty, this.nearPos));
     }
     // Objetos de las plantillas: hitos (braseros grandes), braseros pequeños y pilares Desnombrados.
     for (const pr of map.props) {
       if (pr.x < v.x0 - 120 || pr.x > v.x1 + 120 || pr.y < v.y0 - 60 || pr.y > v.y1 + 220) continue;
-      if (pr.kind === 'hito') list.push({ y: pr.y + 40, draw: () => { this.blob(pr.x, pr.y + 40, 40); drawBrazier(g, pr.x, pr.y + 40, true, art.img.flame, sec, pr.x); } });
-      else if (pr.kind === 'brasero') list.push({ y: pr.y + 22, draw: () => { this.blob(pr.x, pr.y + 22, 18); drawBrazier(g, pr.x, pr.y + 22, false, art.img.flame, sec, pr.y); } });
-      else if (pr.kind === 'pilar') list.push({ y: pr.y + 30, draw: () => { this.blob(pr.x, pr.y + 30, 34); this.drawScene('pilar_dormido', pr.x, pr.y + 30, 150); } });
+      if (pr.kind === 'hito') item(pr.y + 40).f = () => { this.blob(pr.x, pr.y + 40, 40); drawBrazier(g, pr.x, pr.y + 40, true, art.img.flame, sec, pr.x); };
+      else if (pr.kind === 'brasero') item(pr.y + 22).f = () => { this.blob(pr.x, pr.y + 22, 18); drawBrazier(g, pr.x, pr.y + 22, false, art.img.flame, sec, pr.y); };
+      else if (pr.kind === 'pilar') item(pr.y + 30).f = () => { this.blob(pr.x, pr.y + 30, 34); this.drawScene('pilar_dormido', pr.x, pr.y + 30, 150); };
     }
     const pushers = [{ x: this.me.x, y: this.me.y }];
     const remotesNow: { r: Remote; x: number; y: number }[] = [];
@@ -835,33 +861,43 @@ export class Game {
     const art = Game.art!;
     for (const d of this.decor) {
       if (d.x < v.x0 || d.x > v.x1 || d.y < v.y0 || d.y > v.y1 + 60) continue;
-      if (d.kind === 'skull') list.push({ y: d.y - 20, draw: () => { const i = art.img.skull; if (i) g.drawImage(i, d.x - 12, d.y - 10, 24, 20); } });
-      else if (d.kind === 'grass') list.push({ y: d.y, draw: () => drawGrass(g, d, sec, pushers) });
-      else list.push({ y: d.y + 0.5, draw: () => this.drawSconce(d, sec) });
+      if (d.kind === 'skull') item(d.y - 20).f = () => { const i = art.img.skull; if (i) g.drawImage(i, d.x - 12, d.y - 10, 24, 20); };
+      else if (d.kind === 'grass') item(d.y).f = () => drawGrass(g, d, sec, pushers);
+      else item(d.y + 0.5).f = () => this.drawSconce(d, sec);
     }
-    map.monoliths.forEach((mo, i) => { if (mo.x > v.x0 - 100 && mo.x < v.x1 + 100 && mo.y > v.y0 && mo.y < v.y1 + 200) list.push({ y: mo.y + 40, draw: () => { this.blob(mo.x, mo.y + 40, 48); this.drawScene(this.monolithKey(i), mo.x, mo.y + 40, MONO_SIZE); } }); });
+    map.monoliths.forEach((mo, i) => { if (mo.x > v.x0 - 100 && mo.x < v.x1 + 100 && mo.y > v.y0 && mo.y < v.y1 + 200) item(mo.y + 40).f = () => { this.blob(mo.x, mo.y + 40, 48); this.drawScene(this.monolithKey(i), mo.x, mo.y + 40, MONO_SIZE); }; });
     const monsNow: { m: Mon; x: number; y: number }[] = [];
     for (const m of this.mons.values()) {
       const p = sampleBuffer(m.buf, now - this.interpDelay); if (!p) continue;
       if (p.x < v.x0 - 200 || p.x > v.x1 + 200 || p.y < v.y0 - 50 || p.y > v.y1 + 300) continue;
       monsNow.push({ m, x: p.x, y: p.y });
-      list.push({ y: p.y, draw: () => this.drawMonster(m, p.x, p.y, now, sec) });
+      item(p.y).f = () => this.drawMonster(m, p.x, p.y, now, sec);
     }
-    for (const p of this.portals) if (p.x > v.x0 - 160 && p.x < v.x1 + 160 && p.y > v.y0 && p.y < v.y1 + 320) list.push({ y: p.y - 6, draw: () => this.drawScene(`portal_${this.portalState(p)}`, p.x, p.y - 6, PORTAL_SIZE) });
-    for (const { r, x, y } of remotesNow) list.push({ y, draw: () => this.drawActor({ x, y, ax: r.ax, ay: r.ay, id: r.id, me: false, color: teamColor(r.team, TEAM_OTHER), invis: r.invis, walk: r.walk, move: r.mv, foco: r.foco, swingAt: r.swingAt, shotAt: r.shotAt, castAt: r.castAt, hitAt: r.flash }, now) });
+    for (const p of this.portals) if (p.x > v.x0 - 160 && p.x < v.x1 + 160 && p.y > v.y0 && p.y < v.y1 + 320) item(p.y - 6).f = () => this.drawScene(`portal_${this.portalState(p)}`, p.x, p.y - 6, PORTAL_SIZE);
+    for (const { r, x, y } of remotesNow) item(y).f = () => this.drawActor({ x, y, ax: r.ax, ay: r.ay, id: r.id, me: false, color: teamColor(r.team, TEAM_OTHER), invis: r.invis, walk: r.walk, move: r.mv, foco: r.foco, swingAt: r.swingAt, shotAt: r.shotAt, castAt: r.castAt, hitAt: r.flash }, now);
     const me = this.me, dying = !me.alive && now - this.deadAt < DIE_MS + 600;
     if ((me.alive || dying) && !me.extracted) {
-      list.push({ y: me.y, draw: () => this.drawActor({ x: me.x, y: me.y, ax: me.ax, ay: me.ay, id: this.myId, me: true, color: teamColor(this.myTeam >= 0 ? this.myTeam : undefined, TEAM_ME), invis: this.invis, walk: this.walk, move: this.moveAmt, foco: this.build.focos[this.foco], swingAt: this.swingAt, shotAt: this.shotAt, castAt: this.lastCastAt, hitAt: this.hurtAt, dieAt: me.alive ? undefined : this.deadAt }, now) });
+      item(me.y).f = () => this.drawActor({ x: me.x, y: me.y, ax: me.ax, ay: me.ay, id: this.myId, me: true, color: teamColor(this.myTeam >= 0 ? this.myTeam : undefined, TEAM_ME), invis: this.invis, walk: this.walk, move: this.moveAmt, foco: this.build.focos[this.foco], swingAt: this.swingAt, shotAt: this.shotAt, castAt: this.lastCastAt, hitAt: this.hurtAt, dieAt: me.alive ? undefined : this.deadAt }, now);
     }
-    for (const c of this.chests) list.push({ y: c.y, draw: () => this.drawChest(c) });
-    for (const r of this.remains) list.push({ y: r.y, draw: () => this.drawRemains(r.x, r.y) });
+    for (const c of this.chests) item(c.y).f = () => this.drawChest(c);
+    for (const r of this.remains) item(r.y).f = () => this.drawRemains(r.x, r.y);
     list.sort((a, b) => a.y - b.y);
     g.lineCap = 'round'; g.lineJoin = 'round';
     this.drawGroundMarks(remotesNow, sec);
     this.drawTelegraphs(monsNow, now, sec);
     this.pve.drawGround(g);
     this.vfx.drawGround(g);
-    for (const o of list) o.draw();
+    for (const o of list) {
+      if (o.f) { o.f(); continue; }
+      const tx = o.tx, ty = o.ty;
+      switch (o.k) {
+        case 1: g.drawImage(this.wallImg(o.o), tx * T, ty * T - WALL_RISE, T, T + WALL_RISE); if (o.tile === THIN) drawThinCracks(g, tx, ty); break;
+        case 2: drawDiagWall(g, o.tile, tx, ty, DIAGS); break;
+        case 3: drawCover(g, tx, ty, (tx * 7 + ty * 13) & 7); break;
+        case 4: drawBars(g, tx, ty, true); break;
+        case 5: drawGate(g, tx, ty, GATE_DIR[o.tile], o.o, sec); break;
+      }
+    }
 
     P?.push(performance.now());
     // 3. Luz: se recorta la oscuridad con cada fuente y luego se tiñe con su color.
@@ -1498,7 +1534,15 @@ export class Game {
   private drawMonster(m: Mon, x: number, y: number, now: number, t: number) {
     const g = this.ctx, S = MONSTER_SCALE[m.k], since = now - m.strikeAt, ph = m.id * 1.7;
     monShadow(g, x, y, (m.k === 'coloso' ? 80 : m.k === 'errante' ? 48 : 30) * S);
-    const at = (px: number, py: number, alpha: number, fn: () => void) => { g.save(); g.globalAlpha = alpha; g.translate(px, py); g.scale(S * (m.k === 'coloso' ? 1 : m.face), S); fn(); g.restore(); };
+    // Pose a 15 por segundo (30 mientras prepara o golpea) desde su caché; la posición sigue a 60.
+    const cache = this.monCache.get(`m${m.id}`, now), box = MON_BOX[m.k], px = this.scale * this.dpr;
+    const fps = m.st === 'w' || since < 700 ? 30 : 15, key = `${m.face}${m.st}`, sx = S * (m.k === 'coloso' ? 1 : m.face);
+    const at = (px2: number, py: number, alpha: number, fn: (cg: CanvasRenderingContext2D) => void) => {
+      if (NO_CACHE) { g.save(); g.globalAlpha = alpha; g.translate(px2, py); g.scale(sx, S); fn(g); g.restore(); return; }
+      const prev = g.globalAlpha; g.globalAlpha = prev * alpha;
+      cache.draw(g, px2, py, box, px, fps, now, key, (cg) => { cg.scale(sx, S); fn(cg); });
+      g.globalAlpha = prev;
+    };
     if (m.k === 'errante') {
       const st = Math.sin(t * 2.4 + ph);
       const P: ErrantePose = { sx: 1 - st * 0.02, sy: 1 + st * 0.03, lean: 0, aL: -0.15 + Math.sin(t * 2 + ph) * 0.15, aR: -0.15 + Math.sin(t * 2 + 1 + ph) * 0.15, gl: 0.45 + 0.25 * Math.sin(t * 6 + ph) };
@@ -1507,14 +1551,14 @@ export class Game {
         const u = since / 260;
         Object.assign(P, { sx: 1 + 0.12 * (1 - u), sy: 1 - 0.12 * (1 - u), lean: 0.26 * (1 - u), aR: -1.6 + 2.8 * Math.min(1, u * 3), aL: -1.4 + 2.6 * Math.min(1, Math.max(0, u * 3 - 0.8)), gl: 1 });
         // Estela del salto: copias tenues donde estaba hace un instante.
-        for (const [lag, a] of [[90, 0.22], [45, 0.32]]) { const q = sampleBuffer(m.buf, now - this.interpDelay - lag); if (q) at(q.x, q.y, a * (1 - u), () => drawErrante(g, t, P)); }
+        for (const [lag, a] of [[90, 0.22], [45, 0.32]]) { const q = sampleBuffer(m.buf, now - this.interpDelay - lag); if (q) at(q.x, q.y, a * (1 - u), (cg) => drawErrante(cg, t, P)); }
       }
-      at(x, y, 1, () => drawErrante(g, t, P));
+      at(x, y, 1, (cg) => drawErrante(cg, t, P));
     } else if (m.k === 'susurrante') {
       const P: SusurrantePose = { rise: 0, flare: 1, charge: 0, mouth: 0, spin: t * 0.7 + ph };
       if (m.st === 'w') Object.assign(P, { rise: 18 * m.p, flare: 1 + 0.55 * m.p, charge: m.p, spin: P.spin + m.p * m.p * 6 });
       else if (since < 900) { const u = since / 900; Object.assign(P, { rise: 18 * Math.max(0, 1 - u * 1.5), flare: 1 + 0.55 * Math.max(0, 1 - u * 2.5), charge: Math.max(0, 1 - u * 3), mouth: Math.max(0, 1 - u * 1.6) }); }
-      at(x, y, 1, () => drawSusurrante(g, t, P));
+      at(x, y, 1, (cg) => drawSusurrante(cg, t, P));
     } else {
       const br = Math.sin(t * 1.4 + ph) * 2;
       const P: ColosoPose = { br, aL: 0.24 + br * 0.02, aR: 0.24 + br * 0.02, gl: 0, chain: 0 };
@@ -1524,7 +1568,7 @@ export class Game {
         if (u < 0.1) { const a = -2.66 + 3.3 * (u / 0.1); Object.assign(P, { aL: a, aR: a, gl: 1 }); }
         else { const a = 0.64 - 0.4 * Math.max(0, (u - 0.4) / 0.6); Object.assign(P, { aL: a, aR: a, gl: Math.max(0, 1 - u * 1.5), chain: 1 - u }); }
       }
-      at(x, y, 1, () => drawColoso(g, t, P));
+      at(x, y, 1, (cg) => drawColoso(cg, t, P));
     }
     // Vida: solo si ya recibió daño; el Coloso la muestra siempre, con su nombre.
     const max = MONSTERS[m.k].hp, top = y - (m.k === 'coloso' ? 300 : m.k === 'susurrante' ? 290 : 250) * S;
@@ -1662,10 +1706,18 @@ export class Game {
     const pose = animate(view, { t: now / 1000, walk: a.walk, move: a.move, action, die }, BODIES[app.body]);
     const alpha = die != null ? Math.max(0, 1 - Math.max(0, (now - a.dieAt! - DIE_MS) / 600)) : a.invis ? 0.4 : 1;
     if (die == null) this.blob(a.x, a.y, 20);
-    drawCharacter(this.ctx, {
-      x: a.x, y: a.y, view, flip, app, pose, t: now / 1000, alpha,
-      team: a.color, foco: a.foco ?? null,
-      flash: now - a.hitAt < 120 ? 1 : 0,
-    });
+    const flash = now - a.hitAt < 120 ? 1 : 0;
+    if (a.me || NO_CACHE) {
+      // El propio personaje se dibuja en cada cuadro: es el que más se mira y debe responder al instante.
+      drawCharacter(this.ctx, { x: a.x, y: a.y, view, flip, app, pose, t: now / 1000, alpha, team: a.color, foco: a.foco ?? null, flash });
+      return;
+    }
+    // Los demás: pose a 30 por segundo desde su caché; la posición sigue a 60.
+    const g = this.ctx, prev = g.globalAlpha;
+    g.globalAlpha = prev * alpha;
+    this.actorCache.get(a.id, now).draw(g, a.x, a.y, ACTOR_BOX, this.scale * this.dpr, 30, now,
+      `${view}${flip ? 1 : 0}${flash}${a.foco}${app.body}${app.outfit}${app.head}${a.color}`,
+      (cg) => drawCharacter(cg, { x: 0, y: 0, view, flip, app, pose, t: now / 1000, alpha: 1, team: a.color, foco: a.foco ?? null, flash }));
+    g.globalAlpha = prev;
   }
 }
