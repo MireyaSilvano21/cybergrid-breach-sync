@@ -72,7 +72,17 @@ export class CampScene {
   private members: CampMember[] = [];
   private greet = new Map<string, number>();
   private raf = 0; private running = false;
+  /** Alto (px del lienzo) que tapa la barra de "Entrar a la Grid" cuando flota encima (celular). */
+  private inset = 0; private insetAt = -1e9;
   constructor(private canvas: HTMLCanvasElement, private myId: () => string) { sprites ??= new Sprites(); }
+
+  private barInset(now: number, dpr: number) {
+    if (now - this.insetAt < 500) return this.inset;
+    this.insetAt = now;
+    const bar = this.canvas.parentElement?.querySelector<HTMLElement>('.despliegue');
+    this.inset = bar && getComputedStyle(bar).position === 'absolute' ? bar.offsetHeight * dpr * 0.8 : 0;
+    return this.inset;
+  }
 
   set(members: CampMember[]) {
     const now = performance.now();
@@ -86,8 +96,11 @@ export class CampScene {
   stop() { this.running = false; cancelAnimationFrame(this.raf); }
 
   private draw(now: number) {
-    const { g, w, h } = fit(this.canvas), sec = now / 1000;
+    const { g, w, h: full, dpr } = fit(this.canvas), sec = now / 1000;
     g.setTransform(1, 0, 0, 1, 0, 0);
+    // En celular la barra flota abajo: la escena se acomoda en el alto que queda libre.
+    const h = Math.max(full * 0.6, full - this.barInset(now, dpr));
+    g.fillStyle = '#0d0710'; g.fillRect(0, 0, w, full);
     drawCamp(g, w, h, sec);
     const order = [1, 2, 0]; // primero los de atrás, al final el del centro
     for (const i of order) {
