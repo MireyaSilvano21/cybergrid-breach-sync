@@ -139,7 +139,7 @@ export class Match {
       const offs = ring === 0 ? [[0, 0]] : [[48, 0], [-48, 0], [0, 48], [0, -48], [48, 48], [-48, -48], [48, -48], [-48, 48]].map(([dx, dy]) => [dx * ring, dy * ring]);
       const [ox, oy] = offs.find(([dx, dy]) => free(sp.x + dx, sp.y + dy)) ?? [0, 0];
       this.actors.set(conn.id, {
-        conn, team, app: appearanceOf(profile, conn.id), x: sp.x + ox, y: sp.y + oy, ax: 0, ay: 1,
+        conn, team, app: { ...appearanceOf(profile, conn.id), body: 'medio' }, x: sp.x + ox, y: sp.y + oy, ax: 0, ay: 1,
         hp: PLAYER.maxHp, shield: 0, alive: true, extracted: false,
         input: null, lastSeq: 0, moves: createMoveQueue(), attackAt: 0, syncT: 0,
         syncPortal: -1, syncRevealUntil: 0, shieldGrant: 0, shieldUntil: 0,

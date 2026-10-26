@@ -9,10 +9,10 @@ test('Flujo de campamento: preparar aspecto, invitar a la escuadra y entrar por 
 
   // Preparación: cambiar de cuerpo actualiza la vista previa y se guarda.
   await lider.click('.tabs [data-tab="preparacion"]');
-  const cuerpo = lider.locator('.selector[data-part="body"] b');
-  const antes = await cuerpo.textContent();
-  await lider.click('.selector[data-part="body"] button[data-dir="1"]');
-  await expect(cuerpo).not.toHaveText(antes ?? '');
+  const cabeza = lider.locator('.selector[data-part="head"] b');
+  const antes = await cabeza.textContent();
+  await lider.click('.selector[data-part="head"] button[data-dir="1"]');
+  await expect(cabeza).not.toHaveText(antes ?? '');
   // Las 4 escuelas se pueden elegir; al tomar Seléth queda marcada.
   await lider.click('.escuela[data-school="seleth"]');
   await expect(lider.locator('.escuela[data-school="seleth"]')).toHaveAttribute('aria-pressed', 'true');

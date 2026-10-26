@@ -222,7 +222,7 @@ export class HubUI {
     swap.addEventListener('click', () => this.save({ ...p, build: { ...p.build, focos: [p.build.focos[1], p.build.focos[0]] } }));
     focos.replaceChildren(...cards, swap);
     const names = {
-      body: BODIES[p.appearance.body].name,
+      body: BODIES.medio.name,
       outfit: `${OUTFITS[p.appearance.outfit].name} (${OUTFITS[p.appearance.outfit].school})`,
       head: HEADS[p.appearance.head].name,
     };
