@@ -464,7 +464,7 @@ button:focus-visible,input:focus-visible{outline:3px solid var(--gold-l);outline
 }
 
 /* Escritorio con poca altura: la escena del campamento no pasa del alto visible. */
-@media (min-width:901px){.escena canvas{max-height:calc(100dvh - 268px)}.escuadra{max-height:calc(100dvh - 205px);overflow:auto}}
+@media (min-width:901px) and (min-height:561px){.escena canvas{max-height:calc(100dvh - 268px)}.escuadra{max-height:calc(100dvh - 205px);overflow:auto}}
 /* ---------- Menús en el celular como pantalla de juego: todo cabe en la pantalla ----------
    El campamento, la preparación y las partidas privadas ocupan justo el alto visible, con el
    encabezado en una sola fila; si una lista crece, se desplaza dentro de su panel, no la página. */
@@ -480,18 +480,39 @@ button:focus-visible,input:focus-visible{outline:3px solid var(--gold-l);outline
   #screen-lobby .tab:not([hidden]){flex:1;min-height:0;margin-top:6px}
   /* Campamento: la escena a la izquierda y la escuadra a la derecha. */
   .campamento{grid-template-columns:minmax(0,1fr) minmax(220px,38%);grid-template-rows:minmax(0,1fr);gap:8px;align-items:stretch}
-  .escena{display:grid;grid-template-rows:minmax(0,1fr) auto;border-width:3px;border-radius:14px;min-height:0}
-  .escena canvas{aspect-ratio:auto;height:100%;min-height:0}
-  .despliegue{grid-template-columns:1fr auto;grid-template-areas:'mapa boton' 'cola boton';padding:6px 10px;column-gap:10px;row-gap:0}
+  /* La escena ocupa todo su recuadro (el lienzo va absoluto: un alto en % no siempre se resuelve
+     dentro de la cuadrícula y dejaba la fogata en una franja de arriba). La barra para entrar a
+     la Grid flota abajo, sobre un degradado, como el HUD de un juego. */
+  .escena{position:relative;min-height:0;border-width:3px;border-radius:14px}
+  .escena canvas{position:absolute;inset:0;width:100%;height:100%;aspect-ratio:auto;max-height:none}
+  .despliegue{position:absolute;left:0;right:0;bottom:0;border-top:none;background:linear-gradient(rgba(14,8,16,0),rgba(14,8,16,.88) 45%);
+    grid-template-columns:1fr auto;grid-template-areas:'mapa boton' 'cola boton';padding:22px 10px 8px;column-gap:10px;row-gap:0}
   .despliegue .mapa{font-size:.75rem}
   .despliegue .mapa b{font-size:.95rem}
   .despliegue .cola{font-size:.85rem}
   .panel-screen .despliegue button.grande{font-size:1rem;padding:8px 14px;--btn-w:12px}
-  .escuadra{min-height:0;overflow:auto;padding:8px 10px}
+  /* Escuadra en columna: lo fijo arriba y solo la lista de conectados se desplaza por dentro. */
+  .escuadra{min-height:0;overflow:hidden;padding:8px 10px;display:flex;flex-direction:column}
+  .escuadra > *{flex:none}
+  .panel-screen .escuadra h3.sep{margin:8px 0 4px;padding-top:6px;font-size:.92rem}
+  /* "Unirse a una escuadra" se entiende por el campo; se oculta el título para ganar alto. */
+  .escuadra h3.sep:has(+ #party-join-form){display:none}
+  .escuadra #party-join-form{margin-top:8px;gap:6px}
+  .escuadra #party-join-form button{padding:4px 10px;font-size:.8rem}
+  .escuadra #online-list li{padding:2px 8px}
+  .escuadra #online-list li button{padding:1px 8px;font-size:.75rem}
+  .escuadra #party-error:empty{display:none}
+  .escuadra #online-list{flex:1 1 auto;min-height:44px;overflow:auto}
   .panel-screen .escuadra h3{font-size:1.05rem;margin-bottom:6px}
   .escuadra .codigo{margin-bottom:6px}
   .escuadra .codigo b{font-size:1.1rem}
-  .escuadra .list{max-height:none;gap:6px}
+  .escuadra .list{max-height:none;gap:5px;margin-top:6px}
+  /* Integrantes y conectados en renglones bajos para que quepan sin desplazarse. */
+  .escuadra .list li{padding:4px 10px;font-size:.88rem;min-height:0}
+  .escuadra .list li.libre{padding:2px 10px;font-size:.82rem}
+  .escuadra .codigo{gap:6px}
+  .escuadra .codigo button.mini{padding:2px 8px;font-size:.78rem}
+  .escuadra .row input{padding:5px 8px}
   /* Partidas privadas: el libro llena el espacio y cada página se desplaza por dentro. */
   .libro{margin-top:6px;padding:6px;border-width:3px;border-radius:14px;display:flex;min-height:0}
   .libro .hojas,.libro .cinta{display:none}
