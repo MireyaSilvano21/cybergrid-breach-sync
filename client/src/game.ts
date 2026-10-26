@@ -81,6 +81,13 @@ function labelSprite(text: string, color: string): HTMLCanvasElement {
 const LOW_FPS = 45, HIGH_FPS = 57;
 /** Medición de tiempos por sección del dibujo (solo con ?perf en la dirección). */
 const PERF = typeof location !== 'undefined' && location.search.includes('perf');
+/**
+ * Calidad de dibujo. "alta" (por defecto): resolución fija (hasta 2x, también en celular), sin
+ * cambios a mitad de partida. "auto" (?calidad=auto): la resolución adaptable del parche 17, que
+ * baja la densidad si el juego va lento; cambiar el tamaño del lienzo en plena partida provoca
+ * tirones y saltos de nitidez, por eso ya no es lo normal.
+ */
+const AUTO_QUALITY = typeof location !== 'undefined' && /calidad=auto/.test(location.search);
 /** Color de la faja si no se conoce el equipo (partidas sin equipos). */
 const TEAM_ME = '#ffb347', TEAM_OTHER = '#9a6bff';
 const teamColor = (t: number | undefined, fallback: string) => (t != null && TEAMS[t] ? TEAMS[t].color : fallback);
@@ -122,6 +129,8 @@ export class Game {
   /** Resolución de la capa de oscuridad respecto al lienzo (1/2 en PC, 1/3 en táctil). */
   private darkK = 0.5;
   /** Calidad de dibujo (1 = completa); baja sola si el dispositivo no alcanza 45 FPS. */
+  /** Últimos intervalos entre avisos del navegador, para saber la tasa real de la pantalla. */
+  private gaps = new Array<number>(30).fill(16.7); private gapI = 0; private lastTick = 0; private interval = 16.7;
   private quality = 1; private qAcc = 0; private qN = 0; private qHigh = 0; private workAcc = 0; private capWarned = false;
   private embers: { x: number; y: number; vx: number; vy: number; l: number; c: string }[] = [];
   private sparks: { x: number; y: number; vx: number; vy: number; l: number }[] = [];
@@ -418,13 +427,13 @@ export class Game {
 
   private resize = () => {
     const c = this.ctx.canvas;
-    // En pantallas táctiles la densidad se limita a 1.5x: casi no se nota y son la mitad de píxeles.
+    // Calidad alta: densidad fija hasta 2x. Con ?calidad=auto, 1.5x en táctil y adaptable.
     const touch = matchMedia('(pointer: coarse)').matches;
-    this.dpr = Math.max(0.6, Math.min(touch ? 1.5 : 2, devicePixelRatio || 1) * this.quality);
+    this.dpr = AUTO_QUALITY ? Math.max(0.6, Math.min(touch ? 1.5 : 2, devicePixelRatio || 1) * this.quality) : Math.min(2, devicePixelRatio || 1);
     this.W = innerWidth; this.H = innerHeight;
     c.width = Math.round(this.W * this.dpr); c.height = Math.round(this.H * this.dpr);
     // La capa de oscuridad va a menor resolución: los degradados no lo notan y el móvil lo agradece.
-    this.darkK = touch ? 1 / 3 : 0.5;
+    this.darkK = AUTO_QUALITY && touch ? 1 / 3 : 0.5;
     this.dark.width = Math.ceil(c.width * this.darkK); this.dark.height = Math.ceil(c.height * this.darkK);
     // Viñeta y tono violeta a un cuarto de resolución: son degradados suaves.
     const vw = Math.max(1, Math.ceil(this.W / 4)), vh = Math.max(1, Math.ceil(this.H / 4));
@@ -603,6 +612,18 @@ export class Game {
   }
 
   private loop = (t: number) => {
+    // Ritmo estable de 60: en pantallas de 120 Hz o más, el navegador llama más seguido (y en
+    // Android la tasa salta entre 60 y 120 al tocar la pantalla). Se dibuja uno de cada N avisos
+    // para que el paso entre cuadros sea siempre parejo; a 60 o 90 Hz se dibuja en todos.
+    const gap = t - this.lastTick; this.lastTick = t;
+    if (gap > 0 && gap < 50) {
+      this.gaps[this.gapI++ % this.gaps.length] = gap;
+      // La mediana se recalcula cada 15 avisos (sin crear arreglos en cada cuadro).
+      if (this.gapI % 15 === 0) this.interval = [...this.gaps].sort((a, b) => a - b)[this.gaps.length >> 1] || 16.7;
+    }
+    // Si el aviso llegó antes de 9.5 ms (pantalla rápida en este momento), solo se dibuja cuando
+    // ya pasaron 13 ms desde el último cuadro: 120 Hz da 60 parejos y 144 Hz da 72.
+    if (gap > 0 && gap < 9.5 && t - this.last < 13) { this.raf = requestAnimationFrame(this.loop); return; }
     const dt = Math.min(0.05, (t - this.last) / 1000);
     this.last = t;
     const w0 = performance.now();
@@ -635,10 +656,19 @@ export class Game {
       const rows = ((window as any).__cgPerf ?? []).slice(-60) as number[][], names = ['piso', 'objetos', 'luz', 'brillos', 'interfaz', 'final'];
       const avg = names.map((_, i) => rows.reduce((t, r) => t + (r[i] ?? 0), 0) / (rows.length || 1));
       const top = avg.indexOf(Math.max(...avg));
-      setText(this.el.fps, `${Math.round(fps)} fps · ${work.toFixed(1)} ms · ${Math.round(this.quality * 100)}% · ${this.dpr.toFixed(2)}x · ${names[top]} ${avg[top].toFixed(1)} ms`);
+      const hz = Math.round(1000 / this.interval);
+      setText(this.el.fps, `${Math.round(fps)} fps · ${hz} Hz · ${work.toFixed(1)} ms · ${AUTO_QUALITY ? `auto ${Math.round(this.quality * 100)}%` : 'alta'} · ${this.dpr.toFixed(2)}x · ${names[top]} ${avg[top].toFixed(1)} ms`);
     }
     if (document.hidden) return;
     const budget = 1000 / 60;
+    if (!AUTO_QUALITY) {
+      // Calidad alta: no se toca la resolución; solo se avisa si el sistema limita a 30 FPS.
+      if (fps < LOW_FPS && fps > 26 && fps < 34 && work < budget * 0.45 && !this.capWarned) {
+        this.capWarned = true;
+        this.toast('Tu dispositivo limita el juego a 30 FPS (ahorro de energía). Desactívalo para jugar a 60.');
+      }
+      return;
+    }
     if (fps < LOW_FPS && work > budget * 0.6 && this.quality > 0.6) { this.quality = Math.max(0.6, this.quality - 0.15); this.qHigh = 0; this.resize(); }
     else if (fps < LOW_FPS && fps > 26 && fps < 34 && work < budget * 0.45 && !this.capWarned) {
       this.capWarned = true;
