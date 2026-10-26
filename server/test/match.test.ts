@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { Match, type Conn } from '../src/game';
-import { INTERACT_RANGE, ITEMS, itemValue } from '@shared/index';
+import { INTERACT_RANGE, ITEMS, itemValue, byValueDensity } from '@shared/index';
 
 function setup(n = 1) {
   const sent: Record<string, any[]> = {};
@@ -35,7 +35,8 @@ describe('Interacción autoritativa con cofres', () => {
     expect(match.actor('p0')!.inventory).toEqual([]);
     match.handleInput('p0', input(2, { use: true })); match.tick();
     expect(chest.state).toBe('empty');
-    expect(match.actor('p0')!.inventory).toEqual(items);
+    // Tomar todo guarda primero lo que más vale por casilla (no en el orden del cofre).
+    expect(match.actor('p0')!.inventory).toEqual(byValueDensity(items));
     match.stop();
   });
 
