@@ -16,6 +16,9 @@ interface Fx { k: string; x: number; y: number; t: number; life: number; dx: num
 function compact<T>(arr: T[], keep: (x: T) => boolean) { let j = 0; for (let i = 0; i < arr.length; i++) if (keep(arr[i])) arr[j++] = arr[i]; arr.length = j; }
 
 const TAU = Math.PI * 2;
+/** Colores sólidos en caché: la transparencia va en globalAlpha, así no se crea un texto nuevo por partícula y cuadro. */
+const SOLID = new Map<string, string>();
+const col = (rgb: string) => { let c = SOLID.get(rgb); if (!c) { c = `rgb(${rgb})`; SOLID.set(rgb, c); } return c; };
 const ease = (u: number) => 1 - (1 - u) * (1 - u);
 const rnd = (a: number, b: number) => a + Math.random() * (b - a);
 
@@ -309,23 +312,24 @@ export class CombatVfx {
       if (p.ground !== undefined && p.y > p.ground) { p.y = p.ground; p.vy *= -0.3; p.vx *= 0.5; p.vr *= 0.5; }
       const a = Math.max(0, 1 - p.t / p.life);
       switch (p.k) {
-        case 'spark': g.strokeStyle = `rgba(${p.rgb},${a})`; g.lineWidth = p.s * 0.8; g.lineCap = 'round'; g.beginPath(); g.moveTo(p.x, p.y); g.lineTo(p.x - p.vx * 0.04, p.y - p.vy * 0.04); g.stroke(); break;
-        case 'ember': glow(g, p.x, p.y, p.s * 3, p.rgb, a); g.fillStyle = `rgba(255,240,200,${a})`; g.fillRect(p.x - 1, p.y - 1, 2, 2); break;
-        case 'mote': glow(g, p.x, p.y, p.s * 3, p.rgb, a * 0.9); break;
-        case 'shard': g.save(); g.translate(p.x, p.y); g.rotate(Math.atan2(p.vy, p.vx)); g.fillStyle = `rgba(${p.rgb},${a})`; g.beginPath(); g.moveTo(6, 0); g.lineTo(-4, -2); g.lineTo(-4, 2); g.closePath(); g.fill(); g.restore(); break;
+        case 'spark': g.globalAlpha = a; g.strokeStyle = col(p.rgb); g.lineWidth = p.s * 0.8; g.lineCap = 'round'; g.beginPath(); g.moveTo(p.x, p.y); g.lineTo(p.x - p.vx * 0.04, p.y - p.vy * 0.04); g.stroke(); break;
+        case 'ember': g.globalAlpha = 1; glow(g, p.x, p.y, p.s * 3, p.rgb, a); g.globalAlpha = a; g.fillStyle = '#fff0c8'; g.fillRect(p.x - 1, p.y - 1, 2, 2); break;
+        case 'mote': g.globalAlpha = 1; glow(g, p.x, p.y, p.s * 3, p.rgb, a * 0.9); break;
+        case 'shard': g.globalAlpha = a; g.save(); g.translate(p.x, p.y); g.rotate(Math.atan2(p.vy, p.vx)); g.fillStyle = col(p.rgb); g.beginPath(); g.moveTo(6, 0); g.lineTo(-4, -2); g.lineTo(-4, 2); g.closePath(); g.fill(); g.restore(); break;
         case 'petal': case 'leaf':
-          g.save(); g.translate(p.x, p.y); g.rotate(p.rot); g.fillStyle = `rgba(${p.rgb},${a})`; g.strokeStyle = `rgba(13,8,11,${a})`; g.lineWidth = 1.2;
+          g.globalAlpha = a; g.save(); g.translate(p.x, p.y); g.rotate(p.rot); g.fillStyle = col(p.rgb); g.strokeStyle = INK; g.lineWidth = 1.2;
           g.beginPath(); g.ellipse(0, 0, p.s * 1.4, p.s * 0.7, 0, 0, TAU); g.fill(); g.stroke(); g.restore(); break;
         case 'plus':
-          g.save(); g.translate(p.x, p.y); glow(g, 0, 0, 14, p.rgb, a * 0.7); g.fillStyle = `rgba(${p.rgb},${a})`;
-          g.fillRect(-p.s, -1.6, p.s * 2, 3.2); g.fillRect(-1.6, -p.s, 3.2, p.s * 2); g.restore(); break;
-        case 'smoke': g.fillStyle = `rgba(${p.rgb},${a * 0.45})`; g.beginPath(); g.arc(p.x, p.y, p.s * (1 + p.t * 1.5), 0, TAU); g.fill(); break;
-        case 'dust': g.fillStyle = `rgba(${p.rgb},${a * 0.4})`; g.beginPath(); g.ellipse(p.x, p.y, p.s * (1 + p.t * 2), p.s * 0.6 * (1 + p.t), 0, 0, TAU); g.fill(); break;
+          g.globalAlpha = 1; glow(g, p.x, p.y, 14, p.rgb, a * 0.7); g.globalAlpha = a; g.fillStyle = col(p.rgb);
+          g.fillRect(p.x - p.s, p.y - 1.6, p.s * 2, 3.2); g.fillRect(p.x - 1.6, p.y - p.s, 3.2, p.s * 2); break;
+        case 'smoke': g.globalAlpha = a * 0.45; g.fillStyle = col(p.rgb); g.beginPath(); g.arc(p.x, p.y, p.s * (1 + p.t * 1.5), 0, TAU); g.fill(); break;
+        case 'dust': g.globalAlpha = a * 0.4; g.fillStyle = col(p.rgb); g.beginPath(); g.ellipse(p.x, p.y, p.s * (1 + p.t * 2), p.s * 0.6 * (1 + p.t), 0, 0, TAU); g.fill(); break;
         case 'rock':
-          g.save(); g.translate(p.x, p.y); g.rotate(p.rot); g.globalAlpha = Math.min(1, a * 3); g.fillStyle = `rgb(${p.rgb})`; g.strokeStyle = INK; g.lineWidth = 1.5;
-          g.beginPath(); g.moveTo(-p.s, -p.s * 0.6); g.lineTo(p.s * 0.7, -p.s); g.lineTo(p.s, p.s * 0.4); g.lineTo(-p.s * 0.3, p.s); g.closePath(); g.fill(); g.stroke(); g.restore(); g.globalAlpha = 1; break;
+          g.globalAlpha = Math.min(1, a * 3); g.save(); g.translate(p.x, p.y); g.rotate(p.rot); g.fillStyle = col(p.rgb); g.strokeStyle = INK; g.lineWidth = 1.5;
+          g.beginPath(); g.moveTo(-p.s, -p.s * 0.6); g.lineTo(p.s * 0.7, -p.s); g.lineTo(p.s, p.s * 0.4); g.lineTo(-p.s * 0.3, p.s); g.closePath(); g.fill(); g.stroke(); g.restore(); break;
       }
     }
+    g.globalAlpha = 1;
     compact(this.parts, (p) => p.t < p.life);
     g.restore();
   }

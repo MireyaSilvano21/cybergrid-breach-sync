@@ -491,7 +491,7 @@ export class PveFx {
       p.t += dt; p.vy += p.gr * dt; p.x += p.vx * dt; p.y += p.vy * dt; p.rot += p.vr * dt;
       if (p.ground && p.y > p.ground) { p.y = p.ground; p.vy *= -0.32; p.vx *= 0.55; p.vr *= 0.5; }
       const a = Math.max(0, 1 - p.t / p.life);
-      if (p.k === 'spark') line(g, [[p.x, p.y], [p.x - p.vx * 0.035, p.y - p.vy * 0.035]], `rgba(${p.c},${a})`, p.s);
+      if (p.k === 'spark') { g.globalAlpha = a; g.strokeStyle = `rgb(${p.c})`; g.lineWidth = p.s; g.beginPath(); g.moveTo(p.x, p.y); g.lineTo(p.x - p.vx * 0.035, p.y - p.vy * 0.035); g.stroke(); g.globalAlpha = 1; }
       else if (p.k === 'ink') { g.fillStyle = INK; g.beginPath(); g.arc(p.x, p.y, p.s * (0.4 + 0.6 * a), 0, 7); g.fill(); }
       else if (p.k === 'stitch') { g.save(); g.translate(p.x, p.y); g.rotate(p.rot); line(g, [[-3, 0], [3, 0]], `rgba(140,255,230,${a})`, 2); g.restore(); }
       else if (p.k === 'rock') { g.save(); g.translate(p.x, p.y); g.rotate(p.rot); g.globalAlpha = Math.min(1, a * 3); ink(g, '#4b4750', [[-p.s, -p.s * 0.6], [p.s * 0.7, -p.s], [p.s, p.s * 0.4], [-p.s * 0.3, p.s]], p.seed ?? 1, 2); g.restore(); g.globalAlpha = 1; }

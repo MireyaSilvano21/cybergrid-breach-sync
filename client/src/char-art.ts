@@ -33,7 +33,22 @@ const ready = new Map<string, CharArt | 'cargando'>();
 function loadManifest() {
   if (loading || manifest || typeof fetch === 'undefined') return;
   loading = true;
-  fetch(`${BASE}manifest.json`).then((r) => (r.ok ? r.json() : null)).then((m) => { manifest = m; }).catch(() => {}).finally(() => { loading = false; });
+  fetch(`${BASE}manifest.json`).then((r) => (r.ok ? r.json() : null)).then((m) => { manifest = m; if (m) warmAll(m); }).catch(() => {}).finally(() => { loading = false; });
+}
+
+/**
+ * Precarga todas las piezas en segundo plano, de a poco, para que al girar en Preparación o al
+ * empezar la partida no se vea por un instante el dibujo provisional. Son 2 MB en total.
+ */
+function warmAll(m: Manifest) {
+  const files: string[] = [];
+  const add = (r: Record<string, PieceInfo>) => { for (const p of Object.values(r)) files.push(p.f); };
+  for (const v of Object.values(m.cuerpo)) add(v);
+  for (const r of Object.values(m.cabezas)) for (const v of Object.values(r)) add(v);
+  for (const r of Object.values(m.ropas)) for (const v of Object.values(r)) add(v.piezas);
+  let i = 0;
+  const step = () => { for (let k = 0; k < 24 && i < files.length; k++, i++) img(files[i]); if (i < files.length) setTimeout(step, 30); };
+  step();
 }
 
 function img(f: string) {
@@ -78,12 +93,20 @@ export function charArt(app: Appearance, view: View): CharArt | null {
   const key = `${app.outfit}|${app.head}|${view}`, hit = ready.get(key);
   if (hit && hit !== 'cargando') return hit;
   if (hit) return null;
-  const b = build(manifest, app, view);
-  if (!b) return null;
-  ready.set(key, 'cargando');
-  Promise.all(b.imgs.map((i) => (i.complete && i.naturalWidth ? Promise.resolve() : i.decode().catch(() => {}))))
-    .then(() => ready.set(key, b.art));
-  return null;
+  // Se preparan las tres vistas a la vez: así girar no muestra el dibujo provisional.
+  for (const v of ['front', 'side', 'back'] as View[]) {
+    const k = `${app.outfit}|${app.head}|${v}`;
+    if (ready.has(k)) continue;
+    const b = build(manifest, app, v);
+    if (!b) continue;
+    // Si las imágenes ya están (precargadas), queda listo en este mismo cuadro.
+    if (b.imgs.every((i) => i.complete && i.naturalWidth)) { ready.set(k, b.art); continue; }
+    ready.set(k, 'cargando');
+    Promise.all(b.imgs.map((i) => (i.complete && i.naturalWidth ? Promise.resolve() : i.decode().catch(() => {}))))
+      .then(() => ready.set(k, b.art));
+  }
+  const now = ready.get(key);
+  return now && now !== 'cargando' ? now : null;
 }
 
 /** Precarga el manifiesto (al entrar al campamento). */
