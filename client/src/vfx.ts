@@ -12,6 +12,9 @@ type Kind = 'spark' | 'ember' | 'petal' | 'leaf' | 'plus' | 'smoke' | 'rock' | '
 interface Part { k: Kind; x: number; y: number; vx: number; vy: number; gr: number; t: number; life: number; s: number; rgb: string; rot: number; vr: number; drag: number; ground?: number }
 interface Fx { k: string; x: number; y: number; t: number; life: number; dx: number; dy: number; r: number; w: number; ang: number; rgb: string; x2?: number; y2?: number; n?: number; cr?: number[][][] }
 
+/** Quita en el mismo arreglo lo que ya no sirve (sin crear uno nuevo en cada cuadro). */
+function compact<T>(arr: T[], keep: (x: T) => boolean) { let j = 0; for (let i = 0; i < arr.length; i++) if (keep(arr[i])) arr[j++] = arr[i]; arr.length = j; }
+
 const TAU = Math.PI * 2;
 const ease = (u: number) => 1 - (1 - u) * (1 - u);
 const rnd = (a: number, b: number) => a + Math.random() * (b - a);
@@ -298,7 +301,7 @@ export class CombatVfx {
         }
       }
     }
-    this.fx = this.fx.filter((f) => f.t < f.life);
+    compact(this.fx, (f) => f.t < f.life);
     for (const p of this.parts) {
       p.t += dt;
       const dr = Math.max(0, 1 - p.drag * dt);
@@ -323,7 +326,7 @@ export class CombatVfx {
           g.beginPath(); g.moveTo(-p.s, -p.s * 0.6); g.lineTo(p.s * 0.7, -p.s); g.lineTo(p.s, p.s * 0.4); g.lineTo(-p.s * 0.3, p.s); g.closePath(); g.fill(); g.stroke(); g.restore(); g.globalAlpha = 1; break;
       }
     }
-    this.parts = this.parts.filter((p) => p.t < p.life);
+    compact(this.parts, (p) => p.t < p.life);
     g.restore();
   }
 

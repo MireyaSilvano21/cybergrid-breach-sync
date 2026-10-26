@@ -7,6 +7,9 @@ type G = CanvasRenderingContext2D;
 /** Punto de un contorno; el tercer valor (1) lo vuelve una esquina en punta. */
 type P = [number, number, number?];
 
+/** Quita en el mismo arreglo lo que ya no sirve (sin crear uno nuevo en cada cuadro). */
+function compact<T>(arr: T[], keep: (x: T) => boolean) { let j = 0; for (let i = 0; i < arr.length; i++) if (keep(arr[i])) arr[j++] = arr[i]; arr.length = j; }
+
 export const INK = '#0d080b';
 /** Escala de cada criatura respecto al arte original (que mide unos 250 px). */
 export const MONSTER_SCALE = { errante: 0.42, susurrante: 0.42, coloso: 0.6 } as const;
@@ -461,7 +464,7 @@ export class PveFx {
         g.restore(); g.globalAlpha = 1;
       }
     }
-    this.fx = this.fx.filter((f) => f.t < f.life);
+    compact(this.fx, (f) => f.t < f.life);
     const now = performance.now();
     for (let i = this.wisps.length - 1; i >= 0; i--) {
       const w = this.wisps[i], u = (now - w.t0) / w.dur;
@@ -494,6 +497,6 @@ export class PveFx {
       else if (p.k === 'rock') { g.save(); g.translate(p.x, p.y); g.rotate(p.rot); g.globalAlpha = Math.min(1, a * 3); ink(g, '#4b4750', [[-p.s, -p.s * 0.6], [p.s * 0.7, -p.s], [p.s, p.s * 0.4], [-p.s * 0.3, p.s]], p.seed ?? 1, 2); g.restore(); g.globalAlpha = 1; }
       else if (p.k === 'dust') { g.fillStyle = `rgba(95,88,100,${a * 0.45})`; g.beginPath(); g.ellipse(p.x, p.y, p.s * (1 + p.t * 2.4), p.s * (0.6 + p.t * 1.2), 0, 0, 7); g.fill(); }
     }
-    this.parts = this.parts.filter((p) => p.t < p.life);
+    compact(this.parts, (p) => p.t < p.life);
   }
 }
