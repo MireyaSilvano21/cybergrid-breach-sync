@@ -12,6 +12,7 @@ import {
 } from '@shared/index';
 import { INK, shade } from './art';
 import { focoArt, drawFocoArt } from './focos-art';
+import { charArt, type CharArt } from './char-art';
 
 type Ctx = CanvasRenderingContext2D;
 type P = [number, number];
@@ -467,6 +468,9 @@ export interface DrawOpts {
 
 /** Dibuja un personaje con los pies en (x, y) del mundo. */
 export function drawCharacter(g: Ctx, o: DrawOpts) {
+  // Arte de Astra cuando ya cargó (no en el visor del esqueleto ni en las plantillas).
+  const art = !o.base && !o.debug && !o.body ? charArt(o.app, o.view) : null;
+  if (art) return drawArtCharacter(g, o, art);
   const body = o.body ?? BODIES[o.app.body], joints = body.joints[o.view], mats = solve(joints, o.pose);
   const s = (o.scale ?? RIG_WORLD_SCALE);
   const outfit = o.base ? BASE_OUTFIT : OUTFITS[o.app.outfit], head = HEADS[o.app.head];
@@ -482,6 +486,34 @@ export function drawCharacter(g: Ctx, o: DrawOpts) {
     g.save(); g.transform(m[0], m[1], m[2], m[3], m[4], m[5]); piece.draw(c); g.restore();
   }
   if (o.debug) drawBones(g, joints, o.pose, 1 / s);
+  g.restore();
+}
+
+/**
+ * Personaje con las piezas de Astra: cada imagen en su lugar del lienzo, movida por la
+ * transformación de su hueso (las articulaciones son las del rig que entregó con el arte).
+ */
+function drawArtCharacter(g: Ctx, o: DrawOpts, art: CharArt) {
+  const mats = solve(art.joints, o.pose), s = o.scale ?? RIG_WORLD_SCALE;
+  const body = BODIES.medio;
+  g.save();
+  g.translate(o.x, o.y); g.scale(o.flip ? -s : s, s);
+  if (o.alpha != null) g.globalAlpha = o.alpha;
+  const weapons = o.foco ? [weapon(o.foco), ...(o.foco === 'gemelas' ? [weapon(o.foco, 'L')] : [])] : [];
+  const c: Ctx2 = { p: { g, k: 0, ink: true }, j: art.joints, b: body, o: OUTFITS[o.app.outfit], h: HEADS[o.app.head], view: o.view, team: o.team, t: o.t };
+  const drawW = (w: Piece) => { const m = mats[w.bone]; g.save(); g.transform(m[0], m[1], m[2], m[3], m[4], m[5]); w.draw(c); g.restore(); };
+  // De lado, el arma de la mano lejana (izquierda) va detrás del cuerpo y la de la cercana al frente.
+  const behind = o.view === 'side' ? weapons.filter((w) => w.bone === 'handL') : [];
+  const drawWeapons = () => { for (const w of weapons) if (!behind.includes(w)) drawW(w); };
+  for (const w of behind) drawW(w);
+  if (art.weaponAt < 0) drawWeapons();
+  for (let i = 0; i < art.layers.length; i++) {
+    const L = art.layers[i], m = mats[L.bone];
+    g.save(); g.transform(m[0], m[1], m[2], m[3], m[4], m[5]); g.drawImage(L.img, L.x, L.y, L.w, L.h); g.restore();
+    if (i === art.weaponAt) drawWeapons();
+  }
+  // Destello al recibir daño: un velo claro sobre la silueta (más barato que teñir cada pieza).
+  if (o.flash) { g.globalCompositeOperation = 'lighter'; g.globalAlpha = 0.35 * o.flash; for (const L of art.layers) { const m = mats[L.bone]; g.save(); g.transform(m[0], m[1], m[2], m[3], m[4], m[5]); g.drawImage(L.img, L.x, L.y, L.w, L.h); g.restore(); } }
   g.restore();
 }
 
