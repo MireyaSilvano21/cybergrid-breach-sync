@@ -463,6 +463,68 @@ button:focus-visible,input:focus-visible{outline:3px solid var(--gold-l);outline
   .escena canvas{aspect-ratio:4/3}
 }
 
+/* Escritorio con poca altura: la escena del campamento no pasa del alto visible. */
+@media (min-width:901px){.escena canvas{max-height:calc(100dvh - 268px)}.escuadra{max-height:calc(100dvh - 205px);overflow:auto}}
+/* ---------- Menús en el celular como pantalla de juego: todo cabe en la pantalla ----------
+   El campamento, la preparación y las partidas privadas ocupan justo el alto visible, con el
+   encabezado en una sola fila; si una lista crece, se desplaza dentro de su panel, no la página. */
+@media (max-width:900px), (max-height:560px) and (orientation:landscape){
+  #screen-lobby{padding:6px max(8px,env(safe-area-inset-right)) 6px max(8px,env(safe-area-inset-left));place-items:stretch;overflow:hidden}
+  #screen-lobby .lobby{width:100%;height:calc(100dvh - 12px);display:flex;flex-direction:column;min-height:0}
+  #screen-lobby .lobby-head{margin:0;padding:5px 10px;gap:4px 10px;flex-wrap:nowrap}
+  #screen-lobby .lobby-head h2{display:none}
+  #screen-lobby .tabs{flex-wrap:nowrap;gap:4px;flex:1;min-width:0}
+  #screen-lobby .tabs button{flex:1 1 0;min-width:0;padding:4px 6px;font-size:.8rem;line-height:1.1}
+  #screen-lobby .status{font-size:.75rem;gap:8px;white-space:nowrap}
+  #screen-lobby #whoami{display:none}
+  #screen-lobby .tab:not([hidden]){flex:1;min-height:0;margin-top:6px}
+  /* Campamento: la escena a la izquierda y la escuadra a la derecha. */
+  .campamento{grid-template-columns:minmax(0,1fr) minmax(220px,38%);grid-template-rows:minmax(0,1fr);gap:8px;align-items:stretch}
+  .escena{display:grid;grid-template-rows:minmax(0,1fr) auto;border-width:3px;border-radius:14px;min-height:0}
+  .escena canvas{aspect-ratio:auto;height:100%;min-height:0}
+  .despliegue{grid-template-columns:1fr auto;grid-template-areas:'mapa boton' 'cola boton';padding:6px 10px;column-gap:10px;row-gap:0}
+  .despliegue .mapa{font-size:.75rem}
+  .despliegue .mapa b{font-size:.95rem}
+  .despliegue .cola{font-size:.85rem}
+  .panel-screen .despliegue button.grande{font-size:1rem;padding:8px 14px;--btn-w:12px}
+  .escuadra{min-height:0;overflow:auto;padding:8px 10px}
+  .panel-screen .escuadra h3{font-size:1.05rem;margin-bottom:6px}
+  .escuadra .codigo{margin-bottom:6px}
+  .escuadra .codigo b{font-size:1.1rem}
+  .escuadra .list{max-height:none;gap:6px}
+  /* Partidas privadas: el libro llena el espacio y cada página se desplaza por dentro. */
+  .libro{margin-top:6px;padding:6px;border-width:3px;border-radius:14px;display:flex;min-height:0}
+  .libro .hojas,.libro .cinta{display:none}
+  .lobby-grid{flex:1;min-height:0}
+  .pagina{min-height:0;overflow:auto;padding:10px 12px}
+  .panel-screen .pagina h3{font-size:1.1rem;margin-bottom:6px}
+  .pagina h3.sep{margin-top:10px;padding-top:8px}
+  .pagina .vacio{margin:16px 6px 0;font-size:.9rem}
+  #room-title{font-size:1.2rem}
+  .pagina .list li{padding:6px 8px}
+  .panel-screen .pagina input{padding:7px 10px}
+}
+/* Celular de pie: una columna; la escena arriba y la escuadra o las salas abajo. */
+@media (max-width:600px) and (orientation:portrait){
+  /* Encabezado en dos filas: pestañas arriba y conexión abajo. */
+  #screen-lobby .lobby-head{flex-wrap:wrap}
+  #screen-lobby .tabs{flex:1 1 100%}
+  .campamento{grid-template-columns:1fr;grid-template-rows:minmax(150px,42%) minmax(0,1fr)}
+  .lobby-grid{grid-template-columns:1fr;grid-template-rows:auto minmax(0,1fr);gap:6px}
+  .pagina.izq,.pagina.der{border-radius:12px;border-width:3px;box-shadow:inset 0 0 22px rgba(120,80,30,.4)}
+}
+/* Acceso en el celular acostado: el tomo se compacta para caber sin desplazarse. */
+@media (max-height:560px) and (orientation:landscape){
+  #screen-login{padding:6px}
+  .tomo{padding:8px 16px 10px}
+  .tomo .placa.titulo{padding:4px 16px}
+  .tomo label{margin-top:2px}
+  .brand{font-size:1.8rem}
+  .sub{margin:4px 0 6px}
+  .tomo .hoja{padding:10px 12px}
+  .tomo .hojas{display:none}
+}
+
 /* Íconos de tiza de las 4 escuelas y los 8 Focos (el arte final de Astra los reemplaza con el mismo nombre). */
 [data-ability="velo"]{--ico:url(/assets/ui/tiza-velo.svg)}
 [data-ability="paso"]{--ico:url(/assets/ui/tiza-paso.svg)}

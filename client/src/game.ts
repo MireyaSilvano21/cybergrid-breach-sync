@@ -256,8 +256,10 @@ export class Game {
   private offs: (() => void)[] = [];
   private el: Record<string, HTMLElement>;
 
-  constructor(private root: HTMLElement, private net: Net, start: { seed: number; players: number; x: number; y: number; you?: string; team?: number; phases?: Record<string, number> }) {
+  constructor(private root: HTMLElement, private net: Net, start: { seed: number; players: number; x: number; y: number; you?: string; team?: number; phases?: Record<string, number>; roster?: { id: string; app?: Appearance }[] }) {
     this.phaseTimes = start.phases ?? {};
+    // La apariencia que cada quien eligió en Preparación llega en el roster de la partida.
+    for (const r of start.roster ?? []) if (r.app) this.looks.set(r.id, { ...r.app, body: 'medio' });
     const canvas = root.querySelector('canvas')!;
     // Lienzo opaco (el navegador no mezcla con lo de atrás) y de baja latencia donde se soporte.
     // Lienzo opaco, pero sincronizado con la pantalla: el modo desynchronized (baja latencia) dibuja
@@ -1702,7 +1704,7 @@ export class Game {
   /** Apariencia estable de cada jugador (cuerpo, ropa y cabeza). */
   private look(id: string): Appearance {
     let a = this.looks.get(id);
-    if (!a) { a = appearanceFor(id || 'yo'); this.looks.set(id, a); }
+    if (!a) { a = { ...appearanceFor(id || 'yo'), body: 'medio' }; this.looks.set(id, a); }
     return a;
   }
 
