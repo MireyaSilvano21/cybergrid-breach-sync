@@ -17,6 +17,19 @@ import { itemIcon } from './items-art';
 import { drawErrante, drawSusurrante, drawColoso, drawRuneTelegraph, drawZoneTelegraph, shadow as monShadow, PveFx, MONSTER_SCALE, SUSURRANTE_MOUTH, type ErrantePose, type SusurrantePose, type ColosoPose } from './desnombrados';
 
 interface Remote { id: string; name: string; buf: TimedPosition[]; hp: number; ax: number; ay: number; atk: boolean; seen: number; lx: number; ly: number; walk: number; flash: number; foco?: string; slow?: boolean; root?: boolean; invis?: boolean; rev?: boolean; mark?: boolean; team?: number; labelDy?: number; swingAt: number; shotAt: number; castAt: number; mv: number; drawT: number }
+const TRAILS = new Map<string, HTMLCanvasElement>();
+/** Estela de proyectil (forma que se afina y degradado) dibujada una vez por color. */
+function trailSprite(rgb: string) {
+  let c = TRAILS.get(rgb);
+  if (c) return c;
+  c = document.createElement('canvas'); c.width = 128; c.height = 32;
+  const x = c.getContext('2d')!, gr = x.createLinearGradient(0, 0, 128, 0);
+  gr.addColorStop(0, `rgba(${rgb},0)`); gr.addColorStop(1, `rgba(${rgb},.85)`);
+  x.fillStyle = gr; x.beginPath(); x.moveTo(128, 0); x.quadraticCurveTo(64, 5, 0, 16); x.quadraticCurveTo(64, 27, 128, 32); x.closePath(); x.fill();
+  TRAILS.set(rgb, c);
+  return c;
+}
+
 /** Elemento de la lista de dibujo: un muro o puerta (k y casilla) o una función de dibujo (f). */
 interface DrawItem { y: number; k: number; tx: number; ty: number; tile: number; o: number; f: (() => void) | null }
 /** Área que ocupa cada cosa respecto a sus pies (unidades del mundo), para su caché de dibujo. */
@@ -952,7 +965,8 @@ export class Game {
       }
     }
     g.globalAlpha = 1;
-    for (const p of this.embers) { g.fillStyle = `rgba(${p.c},${p.l})`; g.beginPath(); g.arc(p.x, p.y, 2.2 * p.l + 0.6, 0, 6.283); g.fill(); }
+    for (const p of this.embers) { g.globalAlpha = p.l; g.fillStyle = `rgb(${p.c})`; g.beginPath(); g.arc(p.x, p.y, 2.2 * p.l + 0.6, 0, 6.283); g.fill(); }
+    g.globalAlpha = 1;
     for (const p of this.sparks) { g.strokeStyle = `rgba(255,${(190 + p.l * 60) | 0},120,${p.l})`; g.lineWidth = 3 * p.l + 1; g.beginPath(); g.moveTo(p.x, p.y); g.lineTo(p.x - p.vx * 0.03, p.y - p.vy * 0.03); g.stroke(); }
     this.drawCombatFx(now, art);
     g.globalCompositeOperation = 'source-over';
@@ -1324,8 +1338,8 @@ export class Game {
     const s = Math.max(22, radius * 3);
     g.globalAlpha = 0.9; g.drawImage(art.dot.white, x - s / 2, y - s / 2, s, s); g.globalAlpha = 1;
     g.save(); g.translate(x, y); g.rotate(a0);
-    const tr = g.createLinearGradient(-L, 0, 0, 0); tr.addColorStop(0, `rgba(${rgb},0)`); tr.addColorStop(1, `rgba(${rgb},.85)`);
-    g.fillStyle = tr; g.beginPath(); g.moveTo(0, -w / 2); g.quadraticCurveTo(-L * 0.5, -w * 0.35, -L, 0); g.quadraticCurveTo(-L * 0.5, w * 0.35, 0, w / 2); g.closePath(); g.fill();
+    // Estela pre-dibujada por color (sin crear un degradado nuevo por proyectil y cuadro).
+    g.drawImage(trailSprite(rgb), -L, -w / 2, L, w);
     g.fillStyle = `rgba(255,252,240,.95)`;
     switch (kind) {
       case 'arco': case 'lluvia': // flecha: vara clara con punta
