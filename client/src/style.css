@@ -230,6 +230,31 @@ button:focus-visible,input:focus-visible{outline:3px solid var(--gold-l);outline
 .snd-toggle{position:absolute;right:max(14px,env(safe-area-inset-right));top:calc(64px + env(safe-area-inset-top));width:36px;height:36px;border-radius:50%;
   border:2px solid rgba(244,239,228,.45);background:rgba(14,8,16,.6);font-size:1.1rem;cursor:pointer}
 .snd-toggle[aria-checked="false"]{opacity:.5;text-decoration:line-through}
+/* Menú de la partida y aviso al caer: el mismo cofre de madera de los resultados. */
+.menu-btn{position:absolute;right:calc(max(14px,env(safe-area-inset-right)) + 44px);top:calc(64px + env(safe-area-inset-top));width:36px;height:36px;border-radius:50%;
+  border:2px solid rgba(244,239,228,.45);background:rgba(14,8,16,.6);color:#f4efe4;font-size:1.05rem;cursor:pointer;z-index:7;pointer-events:auto}
+.game-menu{position:absolute;inset:0;display:grid;place-items:center;background:rgba(5,2,8,.62);padding:56px 16px 16px;z-index:9;pointer-events:auto}
+.game-menu[data-kind="muerte"]{background:radial-gradient(rgba(60,0,10,.45),rgba(5,2,8,.82))}
+.gm-card{width:min(380px,100%);text-align:center}
+.gm-text{margin:4px 0 10px;color:#f4efe4;font-size:.95rem}
+.gm-stats{margin:0 0 12px;text-align:left}
+.gm-stats:empty{display:none}
+.gm-stats li{display:flex;justify-content:space-between;gap:10px;padding:6px 10px;font-size:.9rem}
+.gm-actions{display:grid;gap:8px}
+.game-menu button{font:700 1rem var(--body);color:#fff3d6;cursor:pointer;background:none;border:3px solid transparent;
+  border-image:url(/assets/ui/boton-madera.png) 32 fill / 12px stretch;padding:9px 16px;text-shadow:0 2px 0 rgba(29,12,22,.55)}
+.game-menu button.primary{border-image-source:url(/assets/ui/boton-hoja.png)}
+.game-menu button.peligro{border-image-source:url(/assets/ui/boton-dorado.png);color:var(--ink);text-shadow:none}
+.game-menu button:active{transform:translateY(2px)}
+@media (max-height:560px) and (orientation:landscape){
+  .game-menu{padding:44px 12px 8px}
+  .gm-card{width:min(560px,100%);border-width:14px;border-image-width:14px;padding:20px 12px 10px}
+  .gm-text{margin:0 0 6px;font-size:.88rem}
+  .gm-stats{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:8px}
+  .gm-stats li{flex-direction:column;align-items:center;gap:0;padding:3px 6px;font-size:.78rem}
+  .gm-actions{grid-template-columns:repeat(3,1fr)}
+  .game-menu button{font-size:.88rem;padding:7px 8px}
+}
 @media (max-width:520px){.slots{grid-template-columns:repeat(10,14px);gap:3px}.slot{height:14px}}
 
 /* Sincronización con el portal: barra menta en tramos. */

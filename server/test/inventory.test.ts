@@ -111,3 +111,15 @@ describe('Mochila', () => {
     match.stop();
   });
 });
+
+describe('Abandonar la partida', () => {
+  it('quien sale con botín lo deja en el suelo y queda fuera', () => {
+    const { match } = setup();
+    const a = match.actor('p0')!;
+    a.inventory = ['corona', 'tonico'];
+    match.removePlayer('p0');
+    expect(a.alive).toBe(false);
+    expect(match.remains.some((r) => r.items.includes('corona') && r.items.includes('tonico'))).toBe(true);
+    match.stop();
+  });
+});

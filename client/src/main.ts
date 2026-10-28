@@ -162,7 +162,7 @@ hub = new HubUI(net, () => currentRoom !== null);
 preloadFocos();
 preloadCharArt();
 // Un clic suave en los botones de los menús (el sonido se desbloquea con el primer toque).
-document.addEventListener('click', (e) => { if ((e.target as HTMLElement | null)?.closest('.panel-screen button, .result button')) sound.play('click'); });
+document.addEventListener('click', (e) => { if ((e.target as HTMLElement | null)?.closest('.panel-screen button, .result button, .game-menu button, .menu-btn')) sound.play('click'); });
 
 $('ready-btn').addEventListener('click', () => net.send({ type: 'ready', ready: $('ready-btn').getAttribute('aria-pressed') !== 'true' }));
 $('leave-btn').addEventListener('click', () => { net.send({ type: 'leave' }); currentRoom = null; $('room-panel').hidden = true; refreshRooms(); });
@@ -176,8 +176,11 @@ net.on('start', (m) => {
   show('screen-game');
   game?.destroy();
   game = new Game($('screen-game'), net, m);
+  // Salir desde el menú de la partida o al caer: el servidor te saca de la sala y vuelves al campamento.
+  game.onLeave = () => { net.send({ type: 'leave' }); game?.destroy(); game = null; currentRoom = null; enterLobby(); };
 });
 net.on('end', (m) => {
+  $('game-menu').hidden = true;
   $('result-title').textContent = 'Partida terminada';
   // Resultados por equipo: el botín que sacaron entre todos y cada integrante.
   const teams = TEAMS.filter((t) => m.results.some((p: any) => p.team === t.id));
