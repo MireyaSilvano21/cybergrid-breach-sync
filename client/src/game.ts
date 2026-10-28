@@ -235,6 +235,12 @@ export class Game {
   private loot: { id: string; items: string[] } | null = null;
   private bagSel = -1;
   private lastPhase = '';
+  /** Lo que hace main.ts al salir de la partida (avisar al servidor y volver al campamento). */
+  onLeave: (() => void) | null = null;
+  private leaveArmed = 0;
+  private diedBy = '';
+  /** Lo que llevabas al caer (el servidor lo deja en el suelo y vacía la mochila). */
+  private lostValue = 0; private lostCount = 0;
   private wasSyncing = false;
   private wasMarked = false;
   /** Fases de la partida (segundos) y tiempo actual, para avisar cuándo despiertan los monolitos. */
@@ -285,7 +291,7 @@ export class Game {
     this.offs.push(net.on('looted', (m) => { sound.play('pickup'); this.toast(`Obtuviste: ${names(m.items)}${m.left ? ' · no cupo todo' : ''}`); }));
     this.offs.push(net.on('dropped', (m) => { sound.play('drop'); this.toast(`Soltaste: ${names([m.item])}`); }));
     this.offs.push(net.on('used', (m) => { sound.play(m.item === 'tonico' ? 'tonic' : 'ward'); this.toast(m.item === 'tonico' ? 'Tónico: te curas poco a poco (un golpe lo corta)' : 'Sal de Guarda: libre de ataduras por 3 s'); }));
-    this.offs.push(net.on('died', () => sound.play('death')));
+    this.offs.push(net.on('died', (m) => { sound.play('death'); this.diedBy = m.by ?? ''; this.lostValue = itemValue(this.inv); this.lostCount = this.inv.length; setTimeout(() => this.openMenu('muerte'), 1400); }));
     this.offs.push(net.on('notice', (m) => this.toast(m.message)));
     this.offs.push(net.on('name', (m) => sound.play(m.result === 'errado' ? 'name_bad' : 'name_ok')));
     this.offs.push(net.on('name', (m) => this.toast(m.result === 'perfecto' ? '¡Nombre perfecto! El monolito se fortalece' : m.result === 'correcto' ? 'Nombre correcto: el ritual sigue' : 'Nombre errado: el monolito te delata')));
@@ -334,6 +340,14 @@ export class Game {
     for (const id of ['inventory', 'bag', 'loot-strip', 'snd-toggle']) on(q(id), 'pointerdown', (e) => e.stopPropagation());
     on(q('inventory'), 'click', () => this.toggleBag());
     on(q('bag-close'), 'click', () => this.toggleBag(false));
+    on(q('menu-btn'), 'pointerdown', (e) => e.stopPropagation());
+    on(q('game-menu'), 'pointerdown', (e) => e.stopPropagation());
+    on(q('menu-btn'), 'click', () => this.openMenu('pausa'));
+    on(q('gm-resume'), 'click', () => this.closeMenu());
+    on(q('gm-sound'), 'click', () => { sound.unlock(); sound.setMuted(!sound.muted); paintMenu(); paint(); });
+    on(q('gm-leave'), 'click', () => this.leaveMatch());
+    const paintMenu = () => { q('gm-sound').textContent = `Sonido: ${sound.muted ? 'no' : 'sí'}`; };
+    this.paintMenu = paintMenu;
     on(q('loot-all'), 'click', () => { this.pendingInv = { a: 'all', i: 0 }; });
     const snd = q('snd-toggle');
     const paint = () => snd.setAttribute('aria-checked', String(!sound.muted));
@@ -345,6 +359,7 @@ export class Game {
       const k = e.key.toLowerCase();
       if (k === 'tab' || k === 'i') { e.preventDefault(); this.toggleBag(); }
       else if (k === 'escape' && !this.bagEl().bag.hidden) this.toggleBag(false);
+      else if (k === 'escape') { if (q('game-menu').hidden) this.openMenu('pausa'); else this.closeMenu(); }
       else if (k === 'c') this.quickUse();
       else if (k === 'm') { sound.setMuted(!sound.muted); paint(); }
     });
@@ -446,6 +461,55 @@ export class Game {
       b.addEventListener('click', () => { this.pendingInv = { a: 'take', i, from: l.id }; });
       return b;
     }));
+  }
+
+  private paintMenu: () => void = () => {};
+
+  /**
+   * Menú de la partida. "pausa": seguir, sonido o salir (la partida en línea no se detiene).
+   * "muerte": quién te derribó, cuánto aguantaste y lo que perdiste; seguir mirando o salir.
+   */
+  private openMenu(kind: 'pausa' | 'muerte') {
+    const q = (id: string) => this.root.querySelector<HTMLElement>(`#${id}`)!;
+    const box = q('game-menu');
+    if (kind === 'pausa' && !this.me.alive && !box.hidden) return;
+    this.leaveArmed = 0; this.paintMenu();
+    box.dataset.kind = kind;
+    const t = Math.max(0, Math.round(this.matchTime)), mm = `${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}`;
+    const stats = q('gm-stats');
+    const leave = q('gm-leave');
+    leave.className = ''; leave.textContent = 'Salir de la partida';
+    if (kind === 'muerte') {
+      q('gm-title').textContent = 'Caíste';
+      q('gm-text').textContent = this.diedBy ? `Te derribó ${this.diedBy}.` : 'Tu nombre se apagó en la Grid.';
+      stats.innerHTML = '';
+      for (const [k, v] of [['Aguantaste', mm], ['Botín perdido', `${this.lostValue} ◆`], ['Objetos en el suelo', String(this.lostCount)]]) {
+        const li = document.createElement('li'); li.innerHTML = `<span>${k}</span><b>${v}</b>`; stats.append(li);
+      }
+      q('gm-resume').textContent = 'Seguir mirando';
+      leave.textContent = 'Volver al campamento';
+    } else {
+      q('gm-title').textContent = 'Menú';
+      q('gm-text').textContent = this.me.alive ? 'La partida sigue mientras el menú está abierto.' : 'Estás mirando la partida.';
+      stats.innerHTML = '';
+      q('gm-resume').textContent = this.me.alive ? 'Seguir jugando' : 'Seguir mirando';
+    }
+    box.hidden = false;
+  }
+
+  private closeMenu() { this.root.querySelector<HTMLElement>('#game-menu')!.hidden = true; this.leaveArmed = 0; }
+
+  /** Salir: si sigues vivo con botín, pide confirmar (lo dejarías en el suelo). */
+  private leaveMatch() {
+    const leave = this.root.querySelector<HTMLElement>('#gm-leave')!;
+    const risky = this.me.alive && !this.me.extracted && this.inv.length > 0;
+    if (risky && performance.now() - this.leaveArmed > 4000) {
+      this.leaveArmed = performance.now();
+      leave.className = 'peligro';
+      leave.textContent = `¿Seguro? Dejarás ${itemValue(this.inv)} ◆`;
+      return;
+    }
+    this.onLeave?.();
   }
 
   /** Usa el primer Tónico (o Sal) de la mochila: atajo de teclado. */

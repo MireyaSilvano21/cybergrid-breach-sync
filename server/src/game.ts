@@ -181,9 +181,10 @@ export class Match {
   /** Acceso de solo lectura para pruebas. */
   actor(id: string) { return this.actors.get(id); }
 
+  /** Alguien abandona la partida: cuenta como caído y su botín queda en el suelo para los demás. */
   removePlayer(id: string) {
     const a = this.actors.get(id);
-    if (a && a.alive && !a.extracted) { a.alive = false; a.endedAt = Date.now(); }
+    if (a && a.alive && !a.extracted) { a.alive = false; a.endedAt = Date.now(); this.dropRemains(a); }
   }
 
   private openPortals(t: number): PortalView[] {

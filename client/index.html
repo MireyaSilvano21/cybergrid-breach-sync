@@ -182,6 +182,20 @@
       <div id="bag-detail" class="bag-detail"><span class="bag-hint">Toca un objeto para ver qué hace.</span></div>
     </div>
     <button type="button" id="snd-toggle" class="snd-toggle" role="switch" aria-checked="true" aria-label="Sonido">♪</button>
+    <button type="button" id="menu-btn" class="menu-btn" aria-label="Menú de la partida">☰</button>
+    <!-- Menú de la partida (Esc o ☰) y aviso al caer. La partida sigue: es en línea, no se pausa. -->
+    <div id="game-menu" class="game-menu" hidden role="dialog" aria-modal="true" aria-labelledby="gm-title">
+      <div class="cofre gm-card">
+        <div class="placa titulo"><h2 id="gm-title">Menú</h2></div>
+        <p id="gm-text" class="gm-text"></p>
+        <ul id="gm-stats" class="list gm-stats"></ul>
+        <div class="gm-actions">
+          <button type="button" id="gm-resume" class="primary">Seguir jugando</button>
+          <button type="button" id="gm-sound">Sonido: sí</button>
+          <button type="button" id="gm-leave">Salir de la partida</button>
+        </div>
+      </div>
+    </div>
     <div id="inventory" class="inv" data-count="0" data-value="0" aria-label="Mochila (abrir)" role="button" tabindex="0">
       <span class="ico ico-mochila" aria-hidden="true"></span>
       <div id="inv-slots" class="slots"></div>
